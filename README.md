@@ -2,19 +2,24 @@
 
 เว็บรายรับรายจ่ายสำหรับเจ้าของสวนปาล์มหลายสวน ใช้งานผ่าน Safari เน้นหน้าจอเรียบง่ายและยอดสุทธิแยกตามสวน
 
-**สถานะ:** มีต้นแบบ HTML, user flow, สเปก และแบบฐานข้อมูล SQL แล้ว ระบบ Next.js / Python FastAPI / SQLite ตามแผนยังไม่ได้เริ่ม implement และยังไม่มี OCR หรือ deployment
+**สถานะ:** มีต้นแบบ HTML, user flow และสเปกแล้ว แผนระบบจริงที่ยืนยันวันที่ 20 ตุลาคม 2569 ใช้ Next.js รวมหน้าเว็บและ API กับ Supabase (PostgreSQL, Auth และ Storage) ยังไม่ได้เริ่ม implement ระบบนี้ และยังไม่มี OCR หรือ deployment
 
 ## เอกสารเริ่มต้น
 
 - [สเปกและแผนพัฒนา 6 ช่วง](app-spec.md)
+- [แผนลงมือพัฒนา 10 ขั้น พร้อมเกณฑ์ตรวจรับ](plans/palm-ledger.md)
 - [User flow — 4 หน้าหลักและ 7 เส้นทาง](user-flow.md)
-- [SQL schema ที่เสนอสำหรับ SQLite](schema.sql)
+- [แบบ SQL เดิมสำหรับ SQLite — ใช้อ้างอิงกติกา ยังต้องเขียน PostgreSQL migrations](schema.sql)
 - [ภาพอ้างอิงแบบที่เลือก](docs/design-reference.png)
 - [ข้อจำกัดการตรวจภาพต้นแบบ](design-qa.md)
 
 ## เทคโนโลยีตามแผน
 
-Frontend: Next.js + React + TypeScript บน Node.js · Backend: Python FastAPI · Database: SQLite แบบไฟล์พร้อม SQL migrations · Motion: สั้นและเบา รองรับ reduced motion
+หน้าเว็บและ API: Next.js + React + TypeScript ในโปรเจกต์เดียว · ข้อมูล: Supabase PostgreSQL พร้อม SQL migrations · บัญชี: Supabase Auth ผ่านหน้าชื่อผู้ใช้ + รหัสผ่าน · รูปบิล: Supabase Storage แบบ private · Motion: สั้นและเบา รองรับ reduced motion
+
+เจ้าของมีบัญชีเดียว จำการเข้าสู่ระบบ 30 วันบนเครื่องส่วนตัว และให้ผู้ดูแลช่วยตั้งรหัสใหม่ เป้าหมายคือสำรองฐานข้อมูลและรูปทุกวันแยกจากระบบหลัก ยอมรับข้อมูลสูญหายย้อนหลังได้ไม่เกินประมาณ 24 ชั่วโมง
+
+เลือกโฮสต์ที่แพ็กเกจฟรีอนุญาตให้ใช้กับงานนี้และรองรับ Next.js ฝั่งเซิร์ฟเวอร์ได้จริง Vercel เป็นตัวเลือกที่ต้องตรวจเงื่อนไขก่อน ไม่ได้ผูกเป็นข้อบังคับ โฮสต์ งานสำรอง ปลายทางสำรอง และโควตา Supabase ยังต้องตรวจล่าสุดก่อน deploy จึงยังไม่รับรองว่าทุกส่วนใช้งานจริงได้ฟรี รายละเอียดอยู่ในสเปก
 
 ## HTML prototype
 
@@ -41,4 +46,4 @@ python3 build.py
 
 The build embeds the committed Phosphor icons and license into the self-contained HTML. It does not download dependencies or rely on files outside this repository. Icons are MIT-licensed; see [PHOSPHOR-LICENSE.txt](PHOSPHOR-LICENSE.txt).
 
-The SQL schema targets SQLite 3.37 or newer with JSON functions. It is a proposed bootstrap schema, not a migration to apply to an existing production database. Runtime databases, uploaded receipts, backups and secrets are excluded from Git.
+The existing SQL schema targets SQLite 3.37 or newer with JSON functions. It is a historical bootstrap proposal and a reference for business constraints, not the PostgreSQL schema for the agreed production system. PostgreSQL migrations and API integration tests remain to be implemented. Do not apply it to Supabase or an existing production database. Runtime databases, uploaded receipts, backups and secrets are excluded from Git.
