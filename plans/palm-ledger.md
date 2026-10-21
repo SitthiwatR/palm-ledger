@@ -2,7 +2,7 @@
 
 > Source PRD: [สเปก Palm Ledger](../app-spec.md) · [User flow](../user-flow.md)
 >
-> แผนปรับตามคำขอให้เหลือ 10 ขั้น วันที่ 20 ตุลาคม 2569 (Asia/Bangkok) อัปเดตสถานะ 21 ตุลาคม 2569: ขั้น 1 deploy บน Vercel และ apply migrations กับ Supabase แล้ว ยังไม่ได้สร้าง issues
+> แผนปรับตามคำขอให้เหลือ 10 ขั้น วันที่ 20 ตุลาคม 2569 (Asia/Bangkok) อัปเดตสถานะ 21 ตุลาคม 2569: **ขั้น 1 เสร็จและผู้ใช้รับงานแล้ว → เริ่มขั้น 2 ในแชทใหม่** ยังไม่ได้สร้าง issues ดู [เอกสารส่งต่องาน](../docs/handoff-phase2.md)
 >
 > ใช้แนวทาง [prd-to-plan ของ Matt Pocock](https://github.com/mattpocock/skills/blob/4dd409d177767ca942eddaff5db577b33e549101/prd-to-plan/SKILL.md) รวมช่วงที่เกี่ยวข้องจากร่างเดิม 21 ช่วง โดยเก็บขอบเขตเดิมครบ
 
@@ -33,11 +33,15 @@
 
 ## Phase 1: เข้าสู่ระบบและจัดการสวน
 
-**สถานะ:** implement และตรวจ API/PostgreSQL/Auth/REST/Chromium ในเครื่องแล้ว Vercel production deployment และ migrations ผ่าน ผู้ใช้ยืนยันสร้างบัญชีเจ้าของและ login บน hosted project สำเร็จแล้ว ปรับ UI เขียว–ครีม/เมนูมือถือและ desktop พร้อมฉากสวน Three.js ที่หยุดตาม Reduce Motion และมีภาพสำรองเมื่อ GPU ใช้ไม่ได้ ยังต้องตรวจ flow จริงครบชุดกับ Safari ดู [วิธีรันและผลตรวจ](../docs/development.md)
+**สถานะ: เสร็จและผู้ใช้รับงานแล้ว** วันที่ 21 ตุลาคม 2569 ผู้ใช้ยืนยันว่าเฟสแรกทดสอบได้ปกติและสั่งให้ไปเฟสถัดไป มีบัญชี/session, สวน/ยอดยกมา, audit และ UI เขียว–ครีม/Three.js ทั้งมือถือและ desktop ดู [วิธีรันและผลตรวจ](../docs/development.md)
 
-**สถานะ deploy ณ 21 ตุลาคม 2569:** [palm-ledger-nine.vercel.app](https://palm-ledger-nine.vercel.app) · Supabase `feotpdylvprtihgklndj` · commit ที่ตรวจ `8f6b7a8` · deployment `dpl_Bk2irnjNtah8JqawnEDTt1MZCyyg` ใช้ Session pooler หลัง direct connection ล้มเหลวด้วย IPv6 `ENETUNREACH` ไม่เก็บ connection string หรือค่าลับใน Git
+**สถานะ deploy ณ 21 ตุลาคม 2569:** [palm-ledger-nine.vercel.app](https://palm-ledger-nine.vercel.app) · Supabase `feotpdylvprtihgklndj` · code baseline `a010403` · deployment `dpl_GPnpxkFjCm9Aak4P32HdTs1No17G` เป็น Ready, migrations ผ่าน, owner configured ใช้ Session pooler และ TLS verification ไม่เก็บ connection string หรือค่าลับใน Git
 
-**งานถัดไป:** ตรวจปิด public signup และ flow เพิ่ม/แก้สวน → reload/logout บนเว็บจริง รวม Safari แล้วเดินขั้น 2: บันทึกขายและแนบรูปบิล ขั้น 2–10 ยังไม่เริ่ม การสร้างบัญชี/login ผ่านแล้วตามผลที่ผู้ใช้ยืนยัน
+**ผลตรวจ:** API integration 8/8, model เดิม 4/4, CLI/diagnostics 12/12, Chromium ของ production build 4/4, TypeScript/format/build ผ่าน ผู้ใช้รับงานเฟสแรกแล้ว ไม่ต้องสัมภาษณ์ brief หรือทำเฟส 1 ใหม่
+
+**งานถัดไป:** เริ่มขั้น 2: บันทึกขายและแนบรูปบิล ตามคำสั่งผู้ใช้ ขั้น 2–10 ยังไม่ implement
+
+**หลักฐานที่ยังไม่ได้ยืนยันแยก:** ผู้ใช้ไม่ได้ระบุรายละเอียดอุปกรณ์หรือรายการตรวจ Safari/focus/keyboard ทุกข้อ และยังไม่มีหลักฐานจากผู้ช่วยยืนยันการปิด public signup บน hosted project เก็บรายการตรวจเฉพาะเหล่านี้ไว้ตรวจต่อในขั้น 10 โดยไม่อ้างว่าอัตโนมัติผ่านแล้ว และไม่ขวางการเริ่มขั้น 2 ที่ผู้ใช้อนุมัติ
 
 **User stories:** 1–6, 8, 43–48
 
@@ -54,12 +58,15 @@
 - [x] แก้ชื่อ/ยอดยกมาและเก็บสวนเป็นประวัติได้พร้อม audit ไม่ลบข้อมูลย้อนหลัง
 - [x] จำการเข้าใช้ 30 วันบนเครื่องส่วนตัว ทดสอบ refresh/หมดอายุ/ออกจากระบบได้ และผู้ดูแลตั้งรหัสใหม่แล้ว session เดิมใช้ไม่ได้
 - [x] migrations สร้างฐานทดสอบใหม่ได้ มี API integration tests และ production deployment apply migrations กับ hosted Supabase สำเร็จ
-- [ ] สร้างบัญชีเจ้าของและตรวจ Auth settings, login และจัดการสวนกับ hosted Supabase/Vercel จริง
-- [ ] ตรวจฟอร์มแรกบน Safari รวม focus/แป้นพิมพ์/reduced motion
+- [x] สร้างบัญชีเจ้าของบน hosted Supabase และผู้ใช้ยืนยัน login/ทดสอบเฟสแรกใช้งานได้ปกติ
+- [ ] ตรวจยืนยัน hosted Auth settings/public signup แยกเป็นหลักฐาน — ตรวจต่อในขั้น 10
+- [ ] บันทึกผล Safari จริงรวม focus/แป้นพิมพ์/reduced motion แยกเป็นหลักฐาน — ตรวจต่อในขั้น 10
 
 ---
 
 ## Phase 2: บันทึกขายและแนบรูปบิล
+
+**สถานะ:** งานถัดไปที่ผู้ใช้อนุมัติให้เริ่มในแชทใหม่ ยังไม่ได้ implement อ่าน [เอกสารส่งต่องาน](../docs/handoff-phase2.md) ก่อนลงมือ
 
 **User stories:** 10–16, 39, 43
 
