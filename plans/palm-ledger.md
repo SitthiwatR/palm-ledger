@@ -187,6 +187,8 @@
 
 **ผลตรวจ:** model 4/4; unit/API/CLI 54/54 ทั้ง dev และ production build; Chromium production build 10 ผ่าน + 1 ข้าม (รูปส่วนตัว OCR ไม่ได้ส่งเข้า); typecheck/format/build/diff ผ่าน ฐานทดสอบ localhost แยก ตรวจส่วนกลาง/400–600 จากจ่าย 333.33/เศษสตางค์/version/retry/rollback/RLS/รูปและประวัติเดิม
 
+**Deployment:** code `4efe66f` → Vercel `dpl_DqsHbryMzzH6PpzHbJu1CoHMjd2p` **READY** พร้อม SHA/alias/migration checksum/RLS/build logs และ production HTTP/served JavaScript ผ่าน ดู [หลักฐาน](../docs/handoff-phase6.md) เอกสารผลตรวจอยู่ commit ถัดมาและต้องตรวจ deployment ของ HEAD ล่าสุดหลัง push
+
 **User stories:** 9, 34–36
 
 **ขึ้นกับ:** 3, 5

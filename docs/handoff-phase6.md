@@ -71,6 +71,22 @@ Production <https://palm-ledger-nine.vercel.app> · Supabase **`feotpdylvprtihgk
 
 ใช้ `npm run deploy:build` apply migrations แบบ transaction/checksum ก่อน build ต้องตรวจ deployment ของ **HEAD ล่าสุดหลัง push** พร้อม repository/branch/SHA/alias และ migration/owner/build logs รอบ Phase 5 auto-deploy ไม่เริ่มและใช้ Git-source deployment ตาม SHA ใน project/team เดิมแทน ห้ามเปลี่ยน credentials/encryption key/Auth settings หรือปิด TLS verification เพื่อแก้การเข้าถึง
 
+## ผล deployment Phase 6 ที่ตรวจแล้ว
+
+Code `4efe66f9f041d15a40c680513b7cde235fa3271a` push `main` แล้ว; Vercel production [`dpl_DqsHbryMzzH6PpzHbJu1CoHMjd2p`](https://vercel.com/self-ade5/palm-ledger/DqsHbryMzzH6PpzHbJu1CoHMjd2p) **READY** พร้อม repository/branch/SHA/alias เว็บจริงตรงกัน Build logs มี `Migrations applied.`, `Owner login: configured`, `Compiled successfully`, `Build Completed` (18 วินาที) และ `Deployment completed`
+
+รอบนี้ยังไม่พบ deployment ของ SHA ใหม่เริ่มอัตโนมัติ จึงใช้ Git-source deployment จาก SHA โดยตรงใน project/team/Git connection เดิม ตรวจ build command เป็น `npm run deploy:build` ไม่อัปโหลด local source หรือเปลี่ยน env/credentials
+
+ตรวจ production แบบอ่านอย่างเดียว:
+
+- Migration Phase 6 applied จริง checksum `fcd85073573ad7e3cf7f12d4f64910359fe14f9428d03954a39e97ee9368f0f1` ตรงไฟล์ใน Git; checksum migrations เดิมทั้งหกไม่เปลี่ยน
+- `expense_allocations` เปิด RLS พร้อม owner SELECT; authenticated อ่านได้แต่ INSERT/UPDATE/DELETE ไม่ได้ anon อ่านไม่ได้ View private มี `security_invoker=true` และ client/anon อ่านไม่ได้ สอง function เป็น security invoker/search path ว่างและ client/anon execute ไม่ได้
+- Security advisors ไม่มีข้อแจ้งใหม่ของ Phase 6 มี warning เดิมเรื่อง [leaked password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) ไม่เปลี่ยน Auth settings ในงานนี้
+- `/login` และ `/records` → 200; unauthenticated `/api/v1/payables` และ `/api/v1/expenses` → 401 ตรวจ JavaScript ที่ `/records` เสิร์ฟจริงพบทั้ง `sharedUnallocatedMinor` และ `allocationVersion`
+- Error/fatal runtime scan ของ deployment นี้ช่วง 10 นาทีที่ตรวจไม่พบแถว log ไม่ใช่การรับรอง monitoring ระยะยาว ไม่สร้างรายการ รูปหรือการจ่ายทดสอบบน production
+
+เอกสารผลตรวจอยู่ใน commit ถัดจาก code นี้ ต้องตรวจ deployment ของ **HEAD ล่าสุดหลัง push เอกสาร** อีกครั้ง ไม่ใช้สถานะของ code commit เก่าแทนผลตรวจ HEAD
+
 ## ขอบเขตถัดไป
 
 รอผู้ใช้ตรวจรับ Phase 6 ก่อนปิดเฟส ไม่ implement Phase 7 ในรอบนี้
