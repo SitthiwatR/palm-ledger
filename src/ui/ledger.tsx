@@ -9,6 +9,7 @@ import {
 } from "react";
 import icons from "../../assets/icons.json";
 import { PalmLandscape } from "./palm-landscape";
+import { ExpenseForm, ExpenseList, type Expense } from "./expense-form";
 import { SaleForm } from "./sale-form";
 import { api, message, RequestError } from "./api";
 
@@ -18,6 +19,7 @@ type Garden = {
   openingMinor: number;
   netMinor: number;
   laborPendingMinor: number;
+  expensePendingMinor: number;
   archived: boolean;
   version: number;
 };
@@ -420,6 +422,9 @@ export function Ledger({
   view: "home" | "gardens" | "garden" | "records";
   gardenId?: string;
 }) {
+  const [expenseModal, setExpenseModal] = useState(false);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const expenseTrigger = useRef<HTMLButtonElement>(null);
   const [gardens, setGardens] = useState<Garden[]>([]),
     [sales, setSales] = useState<Sale[]>([]),
     [loading, setLoading] = useState(true),
@@ -436,8 +441,12 @@ export function Ledger({
       const result = await api("gardens");
       setGardens(result.gardens);
       if (view === "records") {
-        const ledger = await api("sales");
+        const [ledger, costs] = await Promise.all([
+          api("sales"),
+          api("expenses"),
+        ]);
         setSales(ledger.sales);
+        setExpenses(costs.expenses);
       }
       setError("");
       setReady(true);
@@ -606,11 +615,14 @@ export function Ledger({
               <section className="hero detail-hero">
                 <h2>ยอดสุทธิของสวน</h2>
                 <div className="total">{baht(selected.netMinor)}</div>
-                <p>บาท · ยอดยกมา + รายรับขาย − ค่าแรง</p>
+                <p>บาท · ยอดยกมา + รายรับขาย − รายจ่ายทั้งหมด</p>
                 {selected.laborPendingMinor > 0 && (
                   <p>ค่าแรงค้างจ่าย {baht(selected.laborPendingMinor)} บาท</p>
                 )}
               </section>
+              <p>
+                รายจ่ายอื่นค้างจ่าย {baht(selected.expensePendingMinor)} บาท
+              </p>
               <div className="actions">
                 <button className="secondary" onClick={() => open(selected)}>
                   <Icon name="pencil-simple" />
@@ -630,7 +642,34 @@ export function Ledger({
           ))}
         {!loading && ready && view === "records" && (
           <>
+            <div className="actions">
+              <button
+                ref={expenseTrigger}
+                className="primary"
+                disabled={!gardens.some((g) => !g.archived)}
+                onClick={() => setExpenseModal(true)}
+              >
+                เพิ่มรายจ่าย
+              </button>
+            </div>
             <SaleForm gardens={gardens} onSaved={load} />
+            <div className="section-heading records-heading">
+              <h2>รายจ่ายทั่วไป ค่าแรงรายวัน และปุ๋ย</h2>
+            </div>
+            <ExpenseList expenses={expenses} onError={setError} />
+            {expenseModal && (
+              <ExpenseForm
+                gardens={gardens}
+                onSaved={async () => {
+                  await load();
+                  setNotice("บันทึกรายจ่ายแล้ว");
+                }}
+                onClose={() => {
+                  setExpenseModal(false);
+                  setTimeout(() => expenseTrigger.current?.focus(), 0);
+                }}
+              />
+            )}
             <div className="section-heading records-heading">
               <div>
                 <span className="eyebrow">SALES HISTORY</span>
@@ -728,7 +767,7 @@ export function Ledger({
                   </span>
                   <h2>ยอดสุทธิรวมทุกสวน</h2>
                   <div className="total">{baht(total)}</div>
-                  <p>บาท · ยอดยกมา + รายรับขาย − ค่าแรง</p>
+                  <p>บาท · ยอดยกมา + รายรับขาย − รายจ่ายทั้งหมด</p>
                   {gardens.some((g) => g.laborPendingMinor > 0) && (
                     <p>
                       ค่าแรงค้างจ่าย{" "}
@@ -741,6 +780,16 @@ export function Ledger({
                       บาท
                     </p>
                   )}
+                  <p>
+                    รายจ่ายอื่นค้างจ่าย{" "}
+                    {baht(
+                      gardens.reduce(
+                        (sum, g) => sum + g.expensePendingMinor,
+                        0,
+                      ),
+                    )}{" "}
+                    บาท
+                  </p>
                   <span className="hero-detail">
                     รวมสวนที่เก็บเป็นประวัติแล้ว
                   </span>

@@ -398,6 +398,153 @@ test("private reference photo reads printed table values without saving a sale",
   );
   expect(saleWrites).toBe(0);
 });
+test("Phase 3 expenses preserve failed input, reuse daily rates, attach private evidence and retain balances after reload", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/login");
+  await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+  await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  const gardens = await (await page.request.get("/api/v1/gardens")).json();
+  if (!gardens.gardens.some((g: { archived: boolean }) => !g.archived)) {
+    await page.request.post("/api/v1/gardens", {
+      headers: {
+        Origin: "http://127.0.0.1:3100",
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      data: { name: "สวนทดสอบรายจ่าย", openingMinor: 1000000 },
+    });
+  }
+  const before = (await (await page.request.get("/api/v1/summary")).json())
+    .netMinor;
+  await page.goto("/records");
+  await page.getByRole("button", { name: "เพิ่มรายจ่าย", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel("สวนที่มีรายจ่าย")).toBeFocused();
+  await dialog.getByLabel("ชนิดรายจ่าย").selectOption("daily_labor");
+  await dialog
+    .getByLabel("ผู้รับเงิน", { exact: true })
+    .fill("คนงานรายวันใหม่");
+  await dialog.getByLabel("จำนวนวันทำงาน").fill("0.5");
+  await dialog.getByLabel("ค่าแรงต่อวัน (บาท)").fill("500");
+  await dialog.getByLabel("หมายเหตุ").fill("งานครึ่งวันบนมือถือ");
+  await expect(dialog.locator(".sale-calculation")).toContainText("250.00");
+  await page.route("**/api/v1/expenses", (route) =>
+    route.request().method() === "POST"
+      ? route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: { code: "TEST", message: "ทดสอบบันทึกล้มเหลว" },
+          }),
+        })
+      : route.continue(),
+  );
+  await dialog
+    .getByRole("button", { name: "ยืนยันรายจ่าย", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toHaveText("ทดสอบบันทึกล้มเหลว");
+  await expect(dialog.getByRole("alert")).toBeFocused();
+  await expect(dialog.getByLabel("ผู้รับเงิน", { exact: true })).toHaveValue(
+    "คนงานรายวันใหม่",
+  );
+  await expect(dialog.getByLabel("จำนวนวันทำงาน")).toHaveValue("0.5");
+  await page.unroute("**/api/v1/expenses");
+  await dialog
+    .getByRole("button", { name: "ยืนยันรายจ่าย", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "เพิ่มรายจ่าย", exact: true }),
+  ).toBeFocused();
+  await expect(
+    page.locator(".expense-row").filter({ hasText: "คนงานรายวันใหม่" }),
+  ).toContainText("ค้างจ่าย 250.00 บาท");
+  await page.reload();
+  await page.getByRole("button", { name: "เพิ่มรายจ่าย", exact: true }).click();
+  await dialog.getByLabel("ชนิดรายจ่าย").selectOption("daily_labor");
+  await dialog
+    .getByLabel("ผู้รับเงิน", { exact: true })
+    .fill("คนงานรายวันใหม่");
+  await expect(dialog.getByLabel("ค่าแรงต่อวัน (บาท)")).toHaveValue("500.00");
+  await dialog.getByLabel("ค่าแรงต่อวัน (บาท)").fill("600");
+  await dialog.getByLabel(/จำอัตรานี้/).uncheck();
+  await dialog.getByLabel("การจ่ายครั้งแรก").selectOption("full");
+  await dialog
+    .getByRole("button", { name: "ยืนยันรายจ่าย", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  const preferences = await (
+    await page.request.get("/api/v1/sales/preferences")
+  ).json();
+  expect(
+    preferences.profiles.find(
+      (p: { payee: string }) => p.payee === "คนงานรายวันใหม่",
+    ).rateBaht,
+  ).toBe("500.00");
+  await page.getByRole("button", { name: "เพิ่มรายจ่าย", exact: true }).click();
+  await dialog.getByLabel("ชนิดรายจ่าย").selectOption("fertilizer");
+  await dialog.getByLabel("ผู้รับเงิน", { exact: true }).fill("ร้านปุ๋ยทดสอบ");
+  await dialog.getByLabel("กระสอบที่ใช้จริง").fill("4");
+  await dialog.getByLabel("ราคาต่อกระสอบ (บาท)").fill("800");
+  await dialog.getByLabel("การจ่ายครั้งแรก").selectOption("partial");
+  await dialog.getByLabel("ยอดจ่ายครั้งแรก (บาท)").fill("1200");
+  await dialog.getByLabel("วันที่จ่ายครั้งแรก").fill("2026-10-22");
+  await dialog.getByLabel("รูปหลักฐานรายจ่าย (ไม่บังคับ)").setInputFiles({
+    name: "expense.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/nV8AAAAASUVORK5CYII=",
+      "base64",
+    ),
+  });
+  await expect(dialog.locator(".sale-calculation")).toContainText("3,200.00");
+  await expect(dialog.locator(".sale-calculation")).toContainText("2,000.00");
+  expect(await dialog.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(
+    true,
+  );
+  await page.screenshot({
+    path: "test-results/phase3-expense-mobile.png",
+    fullPage: true,
+  });
+  await dialog
+    .getByRole("button", { name: "ยืนยันรายจ่าย", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  await page.reload();
+  const fertilizer = page
+    .locator(".expense-row")
+    .filter({ hasText: "ร้านปุ๋ยทดสอบ" });
+  await expect(fertilizer).toContainText(
+    "จ่ายแล้ว 1,200.00 บาท · ค้างจ่าย 2,000.00 บาท",
+  );
+  await expect(fertilizer).toContainText("22/10/2569");
+  const popupEvent = page.waitForEvent("popup");
+  await fertilizer.getByRole("button", { name: "เปิดรูปหลักฐาน" }).click();
+  const popup = await popupEvent;
+  await popup.waitForURL(/storage\/v1\/object\/sign/);
+  await popup.close();
+  await page.goto("/");
+  await expect(page.locator(".total")).toHaveText(
+    new Intl.NumberFormat("th-TH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format((before - 405000) / 100),
+  );
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(
+    page.locator('.palm-landscape[data-scene-ready="true"] canvas'),
+  ).toBeVisible();
+  await page.screenshot({
+    path: "test-results/phase3-overview-desktop.png",
+    fullPage: true,
+  });
+  expect(errors).toEqual([]);
+});
 test("failed saves keep form input, and administrator reset forces a new login", async ({
   page,
 }) => {

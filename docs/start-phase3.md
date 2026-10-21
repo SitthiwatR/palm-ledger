@@ -1,5 +1,7 @@
 ทำงานต่อใน repository SitthiwatR/palm-ledger สาขา main ล่าสุด
 
+> อัปเดต 21 ตุลาคม 2569: Phase 3 พัฒนาและทดสอบแล้ว ดู [ผลส่งมอบและงานถัดไป](handoff-phase3.md) ข้อความเริ่มงานด้านล่างเก็บเป็นประวัติ ไม่ใช่คำสั่งให้ทำ Phase 3 ซ้ำ
+
 อ่าน AGENTS.md, docs/handoff-phase3.md, docs/handoff-phase2.md, docs/receipt-first-workflow.md, plans/palm-ledger.md และ app-spec.md ก่อนลงมือ
 
 ผู้ใช้ทดสอบและรับงาน Phase 1–2 แล้ว ให้เริ่ม implement Phase 3: รายจ่ายทั่วไป ค่าแรงรายวัน และปุ๋ย ตาม acceptance criteria ในแผนเดิม

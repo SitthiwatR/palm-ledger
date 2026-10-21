@@ -1,6 +1,45 @@
-# ส่งต่องาน Palm Ledger — เริ่ม Phase 3
+# ส่งต่องาน Palm Ledger — ผล Phase 3
 
 อัปเดต 21 ตุลาคม 2569 · Repository `SitthiwatR/palm-ledger` · Branch `main`
+
+## ผลส่งมอบ Phase 3
+
+**พัฒนาและทดสอบแล้ว วันที่ 21 ตุลาคม 2569; ยังไม่ได้อ้างว่าผู้ใช้รับงาน Phase 3** Phase 1–2 ยังคงปิดตามคำยืนยันเดิม งานถัดไปตามแผนคือ Phase 4 โดยตรวจสิ่งที่ทำไว้กับบิลแล้วก่อนเติมส่วนที่ยังขาด
+
+- หน้า `/records` มีปุ่ม **เพิ่มรายจ่าย** เปิด dialog: สวน วันที่เกิดรายจ่าย ผู้รับเงิน หมายเหตุ และรูปหลักฐานที่ไม่บังคับ รองรับค่าแรงรายวัน ปุ๋ยที่ใช้จริง วัตถุดิบ บำรุงรักษา และรายจ่ายอื่น
+- ครึ่งวัน × 500 บาท = 250 บาท ใช้สูตรค่าแรงเดิมและ `labor_profiles` ร่วมกับบิลขาย เลือกชื่อเดิมแล้วเติมอัตราให้ แม้ข้อมูลอัตราโหลดช้ากว่าการพิมพ์ชื่อ; ปิด “จำอัตรานี้” เพื่อแก้เฉพาะรายการโดยไม่ทับอัตราที่จำไว้
+- ปุ๋ย 4 กระสอบ × 800 บาท = 3,200 บาท รับรู้เฉพาะที่ใช้จริง ไม่มีรายการซื้อเก็บ/ระบบสต็อก
+- จ่ายครบ/บางส่วน/ยังไม่จ่าย พร้อมวันที่และยอดจ่ายครั้งแรก เก็บ `expenses` + `expense_payments` + รูป + profile + audit + idempotency ใน transaction เดียว ยอดค้างคำนวณจากประวัติ ส่วนยอดสุทธิหักยอดเต็มครั้งเดียว
+- `sale_labor` เดิมยังคงอยู่ ไม่มี backfill/copy เป็นรายจ่ายใหม่ ไม่เปลี่ยนยอดบิลหรือค่าแรงย้อนหลัง; ยอดสุทธิรวม/รายสวนหัก `expenses` เพิ่มและแสดงยอดค้างแยกจากค่าแรงผูกบิล
+- ใช้ signed upload/private Storage/ตรวจ signature, MIME, ขนาดและ checksum ชุดเดิม เปิดรูปผ่าน owner API; `receipt_files` ผูกได้กับ sale หรือ expense อย่างใดอย่างหนึ่ง
+- ฟอร์มมี lock กันกดซ้ำ เก็บค่าหลัง error ย้าย focus ไปข้อความผิดพลาดและกลับปุ่มเดิมเมื่อปิด รองรับมือถือ/reduced motion และรักษา UI/Three.js เดิม
+
+### ข้อมูลและ API ที่เพิ่ม
+
+- Migration เพิ่มเติม `20261021081458_phase3_expenses.sql` ไม่แก้ migration ที่ apply แล้ว ไม่ล้างหรือ seed production
+- `public.expenses`: quantity × 1,000, rate/amount เป็นสตางค์ พร้อม constraints หน่วย/ชนิด/ครึ่งวัน/สูตรยอดและ owner FK
+- `public.expense_payments`: ประวัติการจ่าย มี trigger แบบ security invoker ใน schema private ล็อกแถวรายจ่ายและป้องกันยอดจ่ายรวมเกินยอดเต็ม; ตารางใหม่เปิด RLS ให้ owner อ่าน และไม่อนุญาต client เขียนโดยตรง
+- `POST /api/v1/expenses` รับ `gardenId`, `expenseDate`, `kind`, `payee`, `note`, `unit`, `quantity`, `rateBaht`, `paymentStatus`, `paidBaht`, `paymentDate`, `rememberRate` และ `pendingReceiptId` (ไม่บังคับ) พร้อม Idempotency-Key
+- หน่วย: daily_labor → day, fertilizer → sack, material/maintenance/other → item; จำนวน/อัตราเป็น decimal string ให้ server คำนวณใหม่
+- `paidBaht` ใช้เฉพาะ partial และต้อง > 0, < ยอดเต็ม; full ให้ server ใช้ยอดเต็ม, unpaid ไม่สร้าง payment row และไม่มี paymentDate
+- `GET /api/v1/expenses` คืนรายการล่าสุด 200 รายการ พร้อมยอดเต็ม/จ่ายแล้ว/ค้าง รูปและประวัติการจ่าย; pagination/filter/export ยังคงตามเฟสถัดไป
+- `GET summary`, `GET gardens`, `GET gardens/:id` และผล write garden เพิ่ม `expensePendingMinor`; `laborPendingMinor` ยังหมายถึงค่าแรงที่ผูกบิลเดิม
+
+### หลักฐานทดสอบรอบ Phase 3
+
+ใช้ PostgreSQL/Auth/PostgREST/Storage จริงที่ localhost ผ่าน `.env.test.local` และ guard เดิมเท่านั้น รัน suites ตามลำดับ ไม่สร้างข้อมูลทดสอบหรือรูปบน hosted production
+
+- Model เดิม 4/4; unit/API/CLI 41/41; typecheck, format:check, production build และ git diff --check ผ่าน
+- API ตรวจทั้ง 5 หมวด, ครึ่งวัน/อัตราที่จำ/override, การปัดเศษสตางค์, สถานะจ่ายทั้งสาม, ยอดค้าง/ยอดสุทธิ, invalid kind/unit/จำนวน/อัตรา/ยอดจ่ายเกิน, owner/RLS/direct-write denial, receipt access, retry และคำขอ key เดียวพร้อมกันทั้งที่มี/ไม่มีรูป
+- จำลอง failure ตอนเขียน expense audit หลังเพิ่ม payment/profile/รูปแล้ว → rollback ทั้งหมด, upload ยัง pending และ retry ได้รายการเดียว; ตรวจ DB constraints และ trigger จ่ายเกินด้วย
+- Chromium กับ production build: **7 ผ่าน, 1 ข้าม** กรณีข้ามคือรูปส่วนตัวสำหรับ OCR ที่ไม่ได้ส่งเข้ารอบนี้ ไม่ใช่งานหลัก Phase 3; flow รายจ่ายใหม่ผ่านครบ รวม form preservation/focus, rates after reload, override, private image, ยอดค้างและสุทธิ, ไม่มี console error/overflow ใน flow ที่ตรวจ
+- Safari/iPhone จริงและคุณภาพ OCR ยังคง Phase 10 ไม่อ้างว่าผ่านจากผล Chromium; ไม่แก้ extraction/provider ใน Phase 3
+
+### ขอบเขตเฟสถัดไป
+
+Phase 4 ตรวจ/เติมค่าแรงทีมผูกบิลจากฐานที่มีอยู่; Phase 5 ทำการจ่ายหนี้ภายหลัง ยกเลิกการจ่ายผิด และหนี้เดิม โดยรองรับทั้ง `sale_labor` เดิมและ `expenses` ใหม่ ห้ามหักสุทธิซ้ำจากการจ่าย การบันทึกจ่ายครั้งแรกในเฟสนี้ไม่ใช่การปิด Phase 5 ส่วนการแก้/ยกเลิกรายจ่ายและตัวกรองยังตามแผนเดิม
+
+ผล deployment หลัง push จะบันทึกเพิ่มเติมด้านล่าง โดยตรวจ SHA ของ commit ไม่อ้าง deployment เก่าแทนรอบนี้
 
 ## คำตัดสินล่าสุดของผู้ใช้
 
@@ -27,9 +66,9 @@
 - จุดเริ่มอ่านโค้ด: `src/server/api.ts`, `src/ui/sale-form.tsx`, `src/ui/ledger.tsx`, `src/lib/sale-math.ts`, `supabase/migrations/`, `tests/integration.test.ts` และ `tests/browser/phase1.spec.ts`
 - ใช้ตาราง `sale_labor` / `labor_profiles` ที่มีอยู่เป็นฐาน ตรวจการรวมยอดก่อนเพิ่มรายจ่ายใหม่ **ห้ามนับค่าแรงผูกบิลเดิมซ้ำ** หรือทำให้รายรับ/รูป/ยอด production เปลี่ยนย้อนหลัง
 
-## งานถัดไป: Phase 3 — รายจ่ายทั่วไป ค่าแรงรายวัน และปุ๋ย
+## ขอบเขต Phase 3 ที่ส่งมอบ
 
-Implement ตามแผนเดิมจาก UI → API → PostgreSQL/private Storage ให้ครบ:
+พัฒนาตามแผนเดิมจาก UI → API → PostgreSQL/private Storage:
 
 - บันทึกรายจ่ายพร้อมสวน วันที่ ผู้รับเงิน รูปและหมายเหตุ รวมค่าแรงรายวันที่ลงแยกจากบิลขาย
 - ค่าแรงครึ่งวันที่ 500 บาท/วัน = 250 บาท จำอัตราเดิมและแก้เฉพาะรายการได้ ใช้ความสามารถจำชื่อ/อัตราที่มีแล้วอย่างสอดคล้องกัน
@@ -47,14 +86,14 @@ Implement ตามแผนเดิมจาก UI → API → PostgreSQL/priv
 - ห้าม reset/truncate/seed production หรือทดสอบสร้างรายการ/รูป/การจ่ายบน production ใช้ migration เพิ่มเติมที่คงข้อมูลเดิม ไม่รัน `schema.sql` SQLite เก่าที่ root
 - คง Session pooler/TLS verification และค่า credentials ที่ถูกต้อง อย่าทับ env ของ Vercel จาก cloud โดยไม่ตรวจ ไม่พิมพ์ secrets หรือขอ key ในแชต ตรวจ readiness ปัจจุบันก่อนใช้บริการ
 
-## หลักฐานและการทดสอบ
+## หลักฐานก่อนเริ่ม Phase 3
 
 รอบสุดท้ายก่อนปิด Phase 2: model **4/4**, unit/API/CLI **38/38**, Chromium ของ production build **7/7**, typecheck/format/build ผ่าน รูปจริงอ่านค่าหลักได้ราว 15–22 วินาทีในเครื่องทดสอบ ผลนี้ไม่หักล้างผลทดสอบของผู้ใช้ว่า extraction ยังไม่ดี
 
 Tests มี guard ให้ใช้ `.env.test.local` เฉพาะ PostgreSQL/Auth/REST/Storage localhost แยกจาก production อ่าน `docs/development.md` ก่อนรัน ใช้บริการ test เดิมหากพร้อม; อย่ารัน API/browser suites พร้อมกันเพราะ reset ฐานเดียวกัน และอย่า build ทับ `.next` ขณะ app test ใช้อยู่
 
-เมื่อทำ Phase 3 เสร็จ ให้ทดสอบตาม acceptance criteria และ regression ที่เกี่ยวข้อง อัปเดตแผน/handoff, commit/push และตรวจ Vercel ของ commit ล่าสุดเป็น Ready พร้อม build/migration logs โดยรักษาข้อมูลเดิม
+การส่งมอบ Phase 3 ต้องทดสอบตาม acceptance criteria และ regression อัปเดตแผน/handoff, commit/push และตรวจ Vercel ของ commit ล่าสุดเป็น Ready พร้อม build/migration logs โดยรักษาข้อมูลเดิม ดูผลรอบนี้ด้านบนและบันทึก deployment
 
-## ข้อความสำหรับแชทถัดไป
+## ข้อความเริ่ม Phase 3 เดิม
 
-คัดลอกจาก [start-phase3.md](start-phase3.md) ได้ทันที
+[start-phase3.md](start-phase3.md) เก็บเป็นประวัติ งานถัดไปให้ใช้สถานะล่าสุดในเอกสารนี้และแผน Phase 4

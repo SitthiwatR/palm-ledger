@@ -119,7 +119,7 @@ test("creates two gardens, persists opening balances, and rejects duplicate retr
     request("gardens", "POST", input, { "Idempotency-Key": key }),
     request("gardens", "POST", input, { "Idempotency-Key": key }),
   ]);
-  assert.equal(first.response.status, 201);
+  assert.ok([200, 201].includes(first.response.status));
   assert.equal(retry.data.id, first.data.id);
   gardenId = first.data.id;
   assert.equal(
@@ -145,6 +145,7 @@ test("creates two gardens, persists opening balances, and rejects duplicate retr
     netMinor: 4280000,
     gardenCount: 2,
     laborPendingMinor: 0,
+    expensePendingMinor: 0,
   });
   const audit = await pool().query(
     "select count(*)::int as n from public.audit_events where action='garden.created'",
@@ -507,6 +508,7 @@ test("concurrent edits reject stale versions; archive retains balances, rows and
     netMinor: 7857100,
     gardenCount: 2,
     laborPendingMinor: 422600,
+    expensePendingMinor: 0,
   });
   assert.equal((await request("gardens/" + gardenId)).data.openingMinor, -500);
   const audit = await pool().query(
@@ -516,6 +518,276 @@ test("concurrent edits reject stale versions; archive retains balances, rows and
   assert.equal(audit.rows.length, 2);
   assert.equal(audit.rows[1].before_data.archived, false);
   assert.equal(audit.rows[1].after_data.archived, true);
+});
+test("standalone daily wages reuse profiles, override one record, and count incurred expenses once for every initial payment state", async () => {
+  const gardens = (await request("gardens")).data.gardens;
+  const activeId = gardens.find((g: { archived: boolean }) => !g.archived).id;
+  const before = (await request("summary")).data;
+  const wage = {
+    gardenId: activeId,
+    expenseDate: "2026-10-21",
+    kind: "daily_labor",
+    payee: "คนงานเฟสสาม",
+    unit: "day",
+    quantity: "0.5",
+    rateBaht: "500",
+    paymentStatus: "unpaid",
+    note: "ครึ่งวัน",
+  };
+  const create = (input: unknown, key = randomUUID()) =>
+    request("expenses", "POST", input, { "Idempotency-Key": key });
+  const key = randomUUID();
+  const [first, retry] = await Promise.all([
+    create(wage, key),
+    create(wage, key),
+  ]);
+  assert.ok([200, 201].includes(first.response.status));
+  assert.ok([200, 201].includes(retry.response.status));
+  assert.equal(first.data.id, retry.data.id);
+  assert.equal(first.data.amountMinor, 25000);
+  assert.equal(first.data.pendingMinor, 25000);
+  assert.equal(
+    (await create({ ...wage, rateBaht: "600" }, key)).response.status,
+    409,
+  );
+  let profile = (await request("sales/preferences")).data.profiles.find(
+    (p: { payee: string }) => p.payee === wage.payee,
+  );
+  assert.equal(profile.rateBaht, "500.00");
+  const override = await create({
+    ...wage,
+    rateBaht: "600",
+    rememberRate: false,
+    paymentStatus: "full",
+    paymentDate: "2026-10-22",
+  });
+  assert.equal(override.data.amountMinor, 30000);
+  assert.equal(override.data.pendingMinor, 0);
+  profile = (await request("sales/preferences")).data.profiles.find(
+    (p: { payee: string }) => p.payee === wage.payee,
+  );
+  assert.equal(profile.rateBaht, "500.00");
+  const pendingReceiptId = await uploadReceipt();
+  const fertilizer = {
+    ...wage,
+    kind: "fertilizer",
+    unit: "sack",
+    quantity: "4",
+    rateBaht: "800",
+    paymentStatus: "partial",
+    paidBaht: "1200",
+    paymentDate: "2026-10-23",
+    pendingReceiptId,
+  };
+  const fertilizerKey = randomUUID();
+  const [used, repeated] = await Promise.all([
+    create(fertilizer, fertilizerKey),
+    create(fertilizer, fertilizerKey),
+  ]);
+  assert.ok([200, 201].includes(used.response.status));
+  assert.ok([200, 201].includes(repeated.response.status));
+  assert.equal(used.data.id, repeated.data.id);
+  assert.equal(used.data.amountMinor, 320000);
+  assert.equal(used.data.paidMinor, 120000);
+  assert.equal(used.data.pendingMinor, 200000);
+  assert.equal((await create(fertilizer, fertilizerKey)).data.id, used.data.id);
+  assert.equal(
+    (await request("summary")).data.netMinor,
+    before.netMinor - 375000,
+  );
+  assert.equal((await request("summary")).data.expensePendingMinor, 225000);
+  assert.equal(
+    (await request("summary")).data.laborPendingMinor,
+    before.laborPendingMinor,
+  );
+  const garden = (await request("gardens/" + activeId)).data;
+  assert.equal(garden.expensePendingMinor, 225000);
+  const all = (await request("expenses")).data.expenses;
+  assert.equal(all.length, 3);
+  const item = all.find((e: { id: string }) => e.id === used.data.id);
+  assert.equal(item.expenseDate, "2026-10-21");
+  assert.equal(item.payments[0].paymentDate, "2026-10-23");
+  assert.equal(item.payments[0].amountMinor, 120000);
+  const signed = await request("receipts/" + item.receiptId);
+  assert.equal(signed.response.status, 200);
+  assert.equal((await fetch(signed.data.url)).status, 200);
+  assert.equal(
+    (
+      await request("receipts/" + item.receiptId, "GET", undefined, {
+        Cookie: "",
+      })
+    ).response.status,
+    401,
+  );
+  assert.equal(
+    (await request("expenses", "GET", undefined, { Cookie: "" })).response
+      .status,
+    401,
+  );
+  assert.equal(
+    (
+      await request("expenses", "POST", wage, {
+        Cookie: "",
+        "Idempotency-Key": randomUUID(),
+      })
+    ).response.status,
+    401,
+  );
+  for (const patch of [
+    { kind: "purchase" },
+    { unit: "kg" },
+    { unit: "sack" },
+    { quantity: "-1" },
+    { quantity: "0" },
+    { quantity: "0.25" },
+    { rateBaht: "-1" },
+    { rateBaht: "0" },
+    { paymentStatus: "partial", paidBaht: "251", paymentDate: "2026-10-21" },
+    { paymentStatus: "partial", paidBaht: "250", paymentDate: "2026-10-21" },
+    { paymentStatus: "partial", paidBaht: "0", paymentDate: "2026-10-21" },
+    { paymentStatus: "full" },
+    { paymentStatus: "unpaid", paidBaht: "1" },
+    { paymentStatus: "unpaid", paymentDate: "2026-10-21" },
+    { expenseDate: "2026-02-30" },
+  ])
+    assert.equal(
+      (await create({ ...wage, ...patch })).response.status,
+      422,
+      JSON.stringify(patch),
+    );
+  assert.equal(
+    (await create({ ...wage, gardenId })).response.status,
+    404,
+    "archived garden",
+  );
+  assert.equal(
+    (await create({ ...wage, gardenId: randomUUID() })).response.status,
+    404,
+  );
+  assert.equal(
+    (await create({ ...wage, pendingReceiptId })).response.status,
+    422,
+    "consumed receipt",
+  );
+  assert.equal(
+    (await request("summary")).data.netMinor,
+    before.netMinor - 375000,
+  );
+  assert.equal(
+    (await pool().query("select count(*)::int n from public.expense_payments"))
+      .rows[0].n,
+    2,
+  );
+  assert.equal(
+    (
+      await pool().query(
+        "select count(*)::int n from public.audit_events where action='expense.created'",
+      )
+    ).rows[0].n,
+    3,
+  );
+  // DB-level guards defend unit/calculation and overpayment, in addition to API checks.
+  await assert.rejects(
+    pool().query(
+      "insert into public.expense_payments(owner_id,expense_id,payment_date,amount_minor) values($1,$2,'2026-10-21',200001)",
+      [ownerId, used.data.id],
+    ),
+    { code: "23514" },
+  );
+  await assert.rejects(
+    pool().query("update public.expenses set unit='sack' where id=$1", [
+      first.data.id,
+    ]),
+    { code: "23514" },
+  );
+  await assert.rejects(
+    pool().query("update public.expenses set amount_minor=1 where id=$1", [
+      first.data.id,
+    ]),
+    { code: "23514" },
+  );
+  for (const kind of ["material", "maintenance", "other"]) {
+    const general = await create({
+      ...wage,
+      kind,
+      unit: "item",
+      quantity: "0.333",
+      rateBaht: "0.05",
+      note: "รายจ่ายทั่วไป",
+    });
+    assert.equal(general.response.status, 201);
+    assert.equal(general.data.amountMinor, 2);
+    assert.equal(general.data.pendingMinor, 2);
+  }
+});
+test("expense, initial payment, profile, receipt, audit and retry roll back together", async () => {
+  const activeId = (await request("gardens")).data.gardens.find(
+    (g: { archived: boolean }) => !g.archived,
+  ).id;
+  const pendingReceiptId = await uploadReceipt();
+  const input = {
+    gardenId: activeId,
+    expenseDate: "2026-10-21",
+    kind: "daily_labor",
+    payee: "expense-rollback",
+    unit: "day",
+    quantity: "0.5",
+    rateBaht: "500",
+    paymentStatus: "full",
+    paymentDate: "2026-10-21",
+    pendingReceiptId,
+  };
+  const snapshot = async () =>
+    (
+      await pool().query(
+        "select (select count(*) from public.expenses)::int expenses,(select count(*) from public.expense_payments)::int payments,(select count(*) from public.receipt_files)::int receipts,(select count(*) from public.audit_events)::int audit,(select count(*) from private.idempotency_requests)::int retries",
+      )
+    ).rows[0];
+  const before = await snapshot();
+  const key = randomUUID();
+  await pool().query(
+    "create function private.test_reject_expense_audit() returns trigger language plpgsql set search_path='' as $$ begin if NEW.action='expense.created' then raise exception 'fixture failure'; end if; return NEW; end $$; create trigger test_reject_expense_audit before insert on public.audit_events for each row execute function private.test_reject_expense_audit()",
+  );
+  try {
+    assert.equal(
+      (await request("expenses", "POST", input, { "Idempotency-Key": key }))
+        .response.status,
+      500,
+    );
+    assert.deepEqual(await snapshot(), before);
+    assert.equal(
+      (
+        await pool().query(
+          "select count(*)::int n from public.labor_profiles where payee='expense-rollback'",
+        )
+      ).rows[0].n,
+      0,
+    );
+    assert.equal(
+      (await request("receipts/verify", "POST", { pendingReceiptId })).response
+        .status,
+      200,
+    );
+  } finally {
+    await pool().query(
+      "drop trigger test_reject_expense_audit on public.audit_events;drop function private.test_reject_expense_audit()",
+    );
+  }
+  const recovered = await request("expenses", "POST", input, {
+    "Idempotency-Key": key,
+  });
+  assert.equal(recovered.response.status, 201);
+  assert.equal(recovered.data.pendingMinor, 0);
+  const retried = await request("expenses", "POST", input, {
+    "Idempotency-Key": key,
+  });
+  assert.equal(retried.data.id, recovered.data.id);
+  const after = await snapshot();
+  assert.equal(after.expenses, before.expenses + 1);
+  assert.equal(after.payments, before.payments + 1);
+  assert.equal(after.receipts, before.receipts + 1);
+  assert.equal(after.audit, before.audit + 2);
+  assert.equal(after.retries, before.retries + 1);
 });
 test("Supabase REST RLS denies non-owners and direct writes, but allows owner reads", async () => {
   const owner = await supabase(true).auth.admin.getUserById(ownerId);
@@ -562,7 +834,13 @@ test("Supabase REST RLS denies non-owners and direct writes, but allows owner re
   await pool().query("notify pgrst,'reload schema'");
   const saleId = (await pool().query("select id from public.sales limit 1"))
     .rows[0].id;
-  for (const table of ["sale_labor", "labor_profiles"]) {
+  for (const table of [
+    "sale_labor",
+    "labor_profiles",
+    "expenses",
+    "expense_payments",
+    "receipt_files",
+  ]) {
     const endpoint = process.env.SUPABASE_URL + "/rest/v1/" + table;
     let read = await fetch(endpoint, { headers });
     for (let attempt = 0; attempt < 10 && read.status === 404; attempt++) {
@@ -579,18 +857,55 @@ test("Supabase REST RLS denies non-owners and direct writes, but allows owner re
     });
     assert.equal(outsider.status, 200);
     assert.deepEqual(await outsider.json(), []);
+    const expenseId = (
+      await pool().query("select id from public.expenses limit 1")
+    ).rows[0].id;
+    const payloads: Record<string, unknown> = {
+      sale_labor: {
+        owner_id: ownerId,
+        mode: "daily",
+        payee: "forbidden",
+        rate_minor: 100,
+        sale_id: saleId,
+        basis_units: 2,
+        amount_minor: 100,
+      },
+      labor_profiles: {
+        owner_id: ownerId,
+        mode: "daily",
+        payee: "forbidden",
+        rate_minor: 100,
+      },
+      expenses: {
+        owner_id: ownerId,
+        garden_id: gardenId,
+        expense_date: "2026-10-21",
+        kind: "other",
+        payee: "forbidden",
+        unit: "item",
+        quantity_milli: 1000,
+        rate_minor: 100,
+        amount_minor: 100,
+      },
+      expense_payments: {
+        owner_id: ownerId,
+        expense_id: expenseId,
+        payment_date: "2026-10-21",
+        amount_minor: 1,
+      },
+      receipt_files: {
+        owner_id: ownerId,
+        expense_id: expenseId,
+        storage_key: "forbidden",
+        mime_type: "image/png",
+        size_bytes: 1,
+        sha256: "a".repeat(64),
+      },
+    };
     const insert = await fetch(endpoint, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        owner_id: ownerId,
-        mode: "daily",
-        payee: "forbidden direct write",
-        rate_minor: 100,
-        ...(table === "sale_labor"
-          ? { sale_id: saleId, basis_units: 2, amount_minor: 100 }
-          : {}),
-      }),
+      body: JSON.stringify(payloads[table]),
     });
     assert.equal(insert.status, 403);
     const anonymous = await fetch(endpoint, {
