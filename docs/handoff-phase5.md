@@ -64,6 +64,20 @@ Production <https://palm-ledger-nine.vercel.app> · Supabase **`feotpdylvprtihgk
 
 GitHub `main` เป็น production branch; push เรียก `deploy:build` apply migrations แบบ transaction/checksum ก่อน build ต้องตรวจ deployment ของ **HEAD ล่าสุดหลัง push** พร้อม repository/branch/SHA, alias และ migration/owner/build logs
 
+Code `f4dacef5fdc8edd33da872048b3031727798e03f` push `main` แล้ว Vercel production [`dpl_9UK2Rs9aYQopcB6Cz6P3XvWXTwUW`](https://vercel.com/self-ade5/palm-ledger/9UK2Rs9aYQopcB6Cz6P3XvWXTwUW) **READY** พร้อม repository/branch/SHA ตรงและ alias เว็บจริง Build logs มี `Migrations applied.`, `Owner login: configured`, `Compiled successfully`, `Build Completed` (15 วินาที) และ `Deployment completed`
+
+รอบนี้หลัง push ยังไม่พบ deployment/commit status อัตโนมัติ จึงสั่ง deployment จาก Git connection เดิมด้วย SHA ที่ระบุชัด โดยไม่เปลี่ยน project/team/build command (`npm run deploy:build`) และไม่อัปโหลดไฟล์ local แทน source จาก Git ต้องตรวจ Git auto-deploy ในงานดูแลภายหลัง หาก push ครั้งถัดไปยังไม่เริ่ม ให้ตรวจ deployment ของ SHA นั้นและใช้ Git-source deployment แบบเดียวกันภายในขอบเขตที่ได้รับอนุญาต
+
+ตรวจ production แบบอ่านอย่างเดียว:
+
+- Migration Phase 5 applied จริง checksum `49af30e36a49b0619b78a4cf322c1505ceca894322ae17ece30b12067e4125c9` ตรงไฟล์ใน Git และ checksum migrations เดิมทั้งห้ายังคงเดิม
+- `opening_debts`/`expense_payments` เปิด RLS พร้อม owner SELECT policy; authenticated อ่านได้แต่ INSERT/UPDATE/DELETE ไม่ได้; anon อ่านไม่ได้ Function เป็น security invoker/search path ว่าง client/anon execute ไม่ได้
+- Security advisors หลัง migration ไม่มีข้อแจ้งใหม่ของ Phase 5 มี warning เดิมตามรายละเอียดด้านล่าง
+- Error/fatal runtime scan ของ deployment นี้ช่วง 10 นาทีที่ตรวจไม่พบแถว log ไม่ใช่การรับรอง monitoring ระยะยาว
+- `/login`, `/records` → 200; unauthenticated `/api/v1/payables` และ `/api/v1/expenses` → 401 ไม่สร้างรายการ/รูป/การจ่ายทดสอบบน production
+
+เอกสารผล deploy อยู่ใน commit ถัดจาก code นี้ ต้องตรวจ deployment ของ HEAD ล่าสุดอีกครั้งหลัง push เอกสาร ไม่อ้างว่า deployment ของ code เก่าเป็นผลตรวจ HEAD ล่าสุด
+
 ไม่เปลี่ยน credentials, encryption key, Auth settings หรือ TLS verification ในงานนี้ Security advisor ก่อน deploy มี warning เดิมเรื่อง [leaked password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) ไม่ใช่ข้อแจ้งใหม่ของ Phase 5
 
 ## งานถัดไป

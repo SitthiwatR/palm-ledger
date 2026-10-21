@@ -162,6 +162,8 @@
 
 **ผลตรวจ:** model 4/4; unit/API/CLI 48/48 ทั้ง dev และ production build; Chromium production build 9 ผ่าน + 1 ข้าม (รูปส่วนตัว OCR ไม่ได้ส่งเข้า); typecheck/format/build/diff ผ่าน ฐานทดสอบ localhost แยกจาก production รองรับการจ่าย/void ทั้ง `sale_labor`, `expenses` รวมทีมแยกบิล และหนี้เดิม โดยใช้ประวัติครั้งแรกเดิม
 
+**Deployment:** code `f4dacef` → Vercel `dpl_9UK2Rs9aYQopcB6Cz6P3XvWXTwUW` **READY** พร้อม SHA/alias/migration checksum/RLS/build logs และ production HTTP ผ่าน ดู [หลักฐาน](../docs/handoff-phase5.md) เอกสารผลตรวจอยู่ commit ถัดมาและต้องตรวจ deployment ของ HEAD ล่าสุดหลัง push
+
 **User stories:** 7, 30–33, 38, 49
 
 **ขึ้นกับ:** 3; ตรวจรับกับค่าแรงทีมจาก 4 เพิ่มเมื่อพร้อม
