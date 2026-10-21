@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { stdin, stdout } from "node:process";
 import { z } from "zod";
 import { audit, normalizedUsername, supabase } from "../src/server/auth";
-import { closePool, transaction } from "../src/server/db";
+import { closePool, pool, transaction } from "../src/server/db";
+import { databaseErrorDetails } from "./database-diagnostics";
 
 type OwnerStage =
   | "validation"
@@ -19,7 +20,7 @@ class OwnerSetupError extends Error {
   }
 }
 
-// Only fixed messages leave this command: provider errors may contain credentials.
+// Keep the main advice fixed. Database diagnostics are redacted separately.
 export function ownerErrorMessage(error: unknown): string {
   const stage = error instanceof OwnerSetupError ? error.stage : "validation";
   const cause = error instanceof OwnerSetupError ? error.cause : error;
@@ -46,6 +47,10 @@ export function ownerErrorMessage(error: unknown): string {
       "Connection refused. Check the Session pooler hostname, port and project status.",
     ETIMEDOUT:
       "Connection timed out. Check network/firewall access to the Session pooler.",
+    ERR_INVALID_URL:
+      "Database URI is invalid. Copy the complete Session pooler URI and URL-encode special characters in its password.",
+    DEPTH_ZERO_SELF_SIGNED_CERT:
+      "Database CA is not trusted. Check the provider CA and local network TLS interception; keep verification enabled.",
     SELF_SIGNED_CERT_IN_CHAIN:
       "Database CA is not trusted. Run prepare-database-ca.ts from this repository folder.",
     UNABLE_TO_VERIFY_LEAF_SIGNATURE:
@@ -76,6 +81,12 @@ export function ownerErrorMessage(error: unknown): string {
         ? cause.code
         : "";
   let reason = Object.hasOwn(reasons, code) ? reasons[code] : undefined;
+  if (
+    !reason &&
+    cause instanceof Error &&
+    /connection timeout|timeout expired/i.test(cause.message)
+  )
+    reason = reasons.ETIMEDOUT;
   if (
     !reason &&
     typeof cause === "object" &&
@@ -206,20 +217,52 @@ async function readPassword(): Promise<string> {
 }
 if (process.argv[1]?.endsWith("owner.ts")) {
   const [mode, name] = process.argv.slice(2);
-  if (!["create", "reset"].includes(mode) || !name) {
+  let hiddenPassword = "";
+  if (mode === "check") {
+    (async () => {
+      const result = await pool().query(
+        "select exists(select 1 from public.owner_accounts) as configured",
+      );
+      console.log("Database connection: OK. Owner tables: OK.");
+      console.log(
+        "Owner login:",
+        result.rows[0].configured ? "configured" : "not configured yet",
+      );
+    })()
+      .catch((error) => {
+        console.error(
+          ownerErrorMessage(new OwnerSetupError("database", error)),
+        );
+        console.error(
+          "Database details:",
+          JSON.stringify(databaseErrorDetails(error)),
+        );
+        process.exitCode = 1;
+      })
+      .finally(closePool);
+  } else if (!["create", "reset"].includes(mode) || !name) {
     console.error(
-      "Usage: owner.ts create|reset USERNAME (password from hidden prompt or stdin)",
+      "Usage: owner.ts check | create|reset USERNAME (password from hidden prompt or stdin)",
     );
     process.exitCode = 1;
   } else
     readPassword()
-      .then((password) =>
-        manageOwner(mode as "create" | "reset", name, password),
-      )
+      .then((password) => {
+        hiddenPassword = password;
+        return manageOwner(mode as "create" | "reset", name, password);
+      })
       .then(() => console.log("Owner updated. No credentials were printed."))
       .catch((error) => {
         console.error(ownerErrorMessage(error));
+        if (error instanceof OwnerSetupError && error.stage === "database")
+          console.error(
+            "Database details:",
+            JSON.stringify(databaseErrorDetails(error.cause, [hiddenPassword])),
+          );
         process.exitCode = 1;
       })
-      .finally(closePool);
+      .finally(() => {
+        hiddenPassword = "";
+        return closePool();
+      });
 }
