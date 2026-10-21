@@ -32,7 +32,9 @@ npm run dev
 
 `local:setup` สร้าง `.env.local` แบบสิทธิ์อ่านเฉพาะเจ้าของไฟล์โดยไม่พิมพ์ค่าลับ หากมีไฟล์อยู่จะรักษาไว้ และปฏิเสธการเริ่ม local stack หากไฟล์นั้นเป็นการตั้งค่า hosted ห้ามนำ credentials ที่สร้างสำหรับ local development ไปใช้ production
 
-ชุดพัฒนาเป็น PostgreSQL 17 + Supabase GoTrue/Auth + PostgREST จริงและ gateway สำหรับขั้น 1 ใช้ image ที่ตรึง digest โดยเปิดพอร์ตเฉพาะ loopback: API 54321 และ PostgreSQL 54322 ชุดนี้ไม่มี Storage/Studio/Realtime และไม่ใช่การติดตั้ง Supabase สำหรับ production ใช้ชุดย่อยเพื่อลดพื้นที่ image ของ PostgreSQL ทั้งชุดที่เกินข้อจำกัดของ cloud นี้
+ชุดพัฒนาเป็น PostgreSQL 17 + Supabase GoTrue/Auth + PostgREST + Supabase Storage API จริงและ gateway ใช้ image ที่ตรึง digest โดยเปิดพอร์ตเฉพาะ loopback: API 54321 (รวม Storage `/storage/v1/`) และ PostgreSQL 54322 ชุดนี้ไม่มี Studio/Realtime และไม่ใช่การติดตั้ง Supabase สำหรับ production ใช้ชุดย่อยเพื่อแยกทดสอบโดยไม่ต้องเข้าถึง project production
+
+Phase 2 เพิ่ม private bucket `palm-receipts` จำกัด 10 MiB และ JPEG/PNG/WebP/HEIC/HEIF; browser ขอ signed upload หลังผ่าน owner authorization แล้วอัปโหลดตรงเข้า Storage เพื่อไม่ส่งไฟล์ผ่าน Next.js function ส่วน API ตรวจ signature/ชนิด/ขนาดจริงและสร้าง SHA-256 ก่อนผูก metadata เข้ากับ sale transaction รูปที่ยังไม่ถูกผูกจะหมดอายุใน 24 ชั่วโมงและถูกเก็บกวาดเมื่อมีการขอ upload URL ครั้งถัดไป ชุดทดสอบมี HEIC fixture จริง แต่ยังไม่มีผลทดสอบภาพจากอุปกรณ์ iPhone หรือ Safari บนอุปกรณ์จริง
 
 ใช้ตัวรัน migration ของโปรเจกต์ผ่าน `db:migrate` ซึ่งตรวจ checksum, ทำ transaction, บันทึกเวอร์ชัน และแจ้ง REST ให้โหลด schema ใหม่ การรันซ้ำคงข้อมูลเดิม ห้ามแก้ migration ที่ถูก apply แล้ว
 
@@ -148,4 +150,4 @@ node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts
 
 ## ผลตรวจปัจจุบัน
 
-API integration กับบริการจริงในเครื่องผ่าน 8/8 และ model เดิมผ่าน 4/4; browser Chromium ของ production build ผ่าน 4/4; TypeScript และ production build ผ่าน CLI diagnostic tests 6 กรณีครอบคลุม validation/configuration, connection refused, read-only check, การปิดบัง credentials/nested errors และ timeout จริงที่ไม่มี error code ส่วน hosted Supabase migrations และ Vercel production deployment ผ่านแล้วตาม build log ผู้ใช้ยืนยัน hosted login ผ่านแล้ว ส่วน hosted flow สวนครบชุดและ Safari/WebKit ยังไม่ผ่านการตรวจ ผลเหล่านี้รับรองเฉพาะส่วนที่ตรวจของขั้น 1 ไม่ใช่ขั้น 2–10 หรือ production readiness ทั้งระบบ
+Phase 2 local checks: model tests 4/4; API integration tests 21/21 กับ PostgreSQL/Auth/PostgREST/Storage จริง; Chromium browser tests 4/4; `typecheck`, `format:check` และ production build ผ่าน รายละเอียด deployment ของ Phase 2 จะเติมหลังตรวจ Vercel จริง ส่วน hosted flow และ Safari/WebKit บนอุปกรณ์จริงยังไม่ผ่านการตรวจ ผล local เหล่านี้ไม่ใช่หลักฐานว่าทดสอบบน production หรือบน iPhone แล้ว

@@ -968,6 +968,156 @@ svg {
 .detail-hero {
   padding-block: 40px;
 }
+.sale-card,
+.sale-list {
+  padding: 26px;
+  background: #fffef8;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 10px 30px #243f3309;
+}
+.sale-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+.sale-form label,
+.deduction-row label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.sale-form input,
+.sale-form select {
+  width: 100%;
+  min-height: 50px;
+  border: 1px solid #d7dfd0;
+  border-radius: 10px;
+  padding: 10px 13px;
+  background: #fff;
+}
+.sale-form .deduction-fields,
+.sale-form .receipt-picker,
+.sale-form .hint,
+.sale-form .error,
+.sale-form .save-notice,
+.sale-form > button {
+  grid-column: 1 / -1;
+}
+.deduction-fields > .section-heading {
+  margin: 5px 0 12px;
+}
+.deduction-fields h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.deduction-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(130px, 0.5fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.deduction-row .text-button {
+  min-height: 48px;
+}
+.receipt-picker {
+  padding: 18px;
+  border: 1px dashed #b8c7af;
+  border-radius: 12px;
+  background: #f8faf2;
+}
+.receipt-picker input {
+  border: 0;
+  background: transparent;
+  padding-inline: 0;
+}
+.receipt-picker small {
+  color: var(--muted);
+}
+.received-check {
+  display: flex !important;
+  align-items: center;
+  gap: 10px !important;
+  grid-column: 1 / -1;
+}
+.received-check input {
+  width: 20px !important;
+  min-height: 20px !important;
+  accent-color: var(--green);
+}
+.records-heading {
+  margin-top: 34px;
+}
+.sale-list {
+  padding: 0 24px;
+}
+.sale-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+.sale-row:last-child {
+  border-bottom: 0;
+}
+.sale-row > div {
+  display: grid;
+  gap: 4px;
+}
+.sale-row > div span,
+.sale-row > div small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.sale-row > b {
+  white-space: nowrap;
+  text-align: right;
+}
+.sale-row > b small {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+}
+.receipt-open {
+  min-height: 42px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .sale-card {
+    padding: 19px;
+  }
+  .sale-form {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+  .sale-form > * {
+    grid-column: 1;
+  }
+  .deduction-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .deduction-row .text-button {
+    grid-column: 2;
+    justify-self: end;
+  }
+  .sale-list {
+    padding: 0 16px;
+  }
+  .sale-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+  .sale-row .receipt-open {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
 .empty {
   padding: 38px 20px;
   text-align: center;

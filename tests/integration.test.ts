@@ -13,6 +13,8 @@ import {
 import { pool } from "../src/server/db";
 import { hash, supabase } from "../src/server/auth";
 import { manageOwner } from "../scripts/owner";
+import { createClient } from "@supabase/supabase-js";
+import { readFileSync } from "node:fs";
 
 let app: ChildProcess,
   cookie = "",
@@ -164,6 +166,186 @@ test("validation failures and duplicate names leave data unchanged", async () =>
   );
   assert.equal((await request("gardens")).data.gardens.length, 2);
 });
+test("sales use server cents math, private Storage receipts, duplicate confirmation, and idempotent retries", async () => {
+  const png = Uint8Array.from(
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/nV8AAAAASUVORK5CYII=",
+      "base64",
+    ),
+  );
+  async function uploadReceipt() {
+    const key = randomUUID();
+    const prepared = await request(
+      "receipts/upload-url",
+      "POST",
+      { mimeType: "image/png", sizeBytes: png.length },
+      { "Idempotency-Key": key },
+    );
+    assert.equal(prepared.response.status, 201);
+    const storage = createClient(
+      prepared.data.supabaseUrl,
+      prepared.data.anonKey,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    );
+    const uploaded = await storage.storage
+      .from(prepared.data.bucket)
+      .uploadToSignedUrl(
+        prepared.data.path,
+        prepared.data.token,
+        new Blob([png], { type: "image/png" }),
+        { contentType: "image/png", upsert: false },
+      );
+    assert.equal(uploaded.error, null);
+    return prepared.data.id;
+  }
+  const receiptId = await uploadReceipt(),
+    key = randomUUID();
+  const payload = {
+    gardenId,
+    saleDate: "2026-10-20",
+    buyer: "ลานปาล์ม",
+    invoiceNumber: "BILL-001",
+    weightKg: "3500",
+    priceBahtPerKg: "5",
+    deductions: [{ description: "ค่าขนส่ง", amountBaht: "500" }],
+    pendingReceiptId: receiptId,
+    receivedFull: true,
+    confirmDuplicate: false,
+  };
+  const saved = await request("sales", "POST", payload, {
+    "Idempotency-Key": key,
+  });
+  assert.equal(saved.response.status, 201);
+  assert.equal(saved.data.netMinor, 1700000);
+  const retry = await request("sales", "POST", payload, {
+    "Idempotency-Key": key,
+  });
+  assert.equal(retry.response.status, 200);
+  assert.equal(retry.data.id, saved.data.id);
+  const mismatch = await request(
+    "sales",
+    "POST",
+    { ...payload, buyer: "ข้อมูลอื่น" },
+    { "Idempotency-Key": key },
+  );
+  assert.equal(mismatch.response.status, 409);
+  assert.equal(mismatch.data.error.code, "IDEMPOTENCY_CONFLICT");
+  const receipt = await pool().query(
+    "select * from public.receipt_files where sale_id=$1",
+    [saved.data.id],
+  );
+  assert.equal(receipt.rows.length, 1);
+  assert.equal(receipt.rows[0].size_bytes, png.length);
+  assert.equal(
+    receipt.rows[0].sha256,
+    (await import("node:crypto"))
+      .createHash("sha256")
+      .update(png)
+      .digest("hex"),
+  );
+  assert.equal(
+    (
+      await request("receipts/" + receipt.rows[0].id, "GET", undefined, {
+        Cookie: "",
+      })
+    ).response.status,
+    401,
+  );
+  const signed = await request("receipts/" + receipt.rows[0].id);
+  assert.equal(signed.response.status, 200);
+  const source = await fetch(signed.data.url);
+  assert.equal(source.status, 200);
+  assert.equal(
+    Buffer.from(await source.arrayBuffer()).compare(Buffer.from(png)),
+    0,
+  );
+  const saleList = await request("sales");
+  assert.equal(saleList.data.sales[0].netMinor, 1700000);
+  assert.equal((await request("summary")).data.netMinor, 5980000);
+  const duplicateReceipt = await uploadReceipt();
+  const duplicateKey = randomUUID();
+  const duplicatePayload = {
+    ...payload,
+    pendingReceiptId: duplicateReceipt,
+    receivedFull: true,
+  };
+  const warning = await request("sales", "POST", duplicatePayload, {
+    "Idempotency-Key": duplicateKey,
+  });
+  assert.equal(warning.response.status, 409);
+  assert.equal(warning.data.error.code, "DUPLICATE_BILL");
+  const confirmed = await request(
+    "sales",
+    "POST",
+    { ...duplicatePayload, confirmDuplicate: true },
+    { "Idempotency-Key": duplicateKey },
+  );
+  assert.equal(confirmed.response.status, 201);
+  assert.equal(confirmed.data.netMinor, 1700000);
+  const invalidUpload = await request(
+    "receipts/upload-url",
+    "POST",
+    { mimeType: "image/png", sizeBytes: 10485761 },
+    { "Idempotency-Key": randomUUID() },
+  );
+  assert.equal(invalidUpload.response.status, 422);
+  const heic = readFileSync("tests/fixtures/sample.heic");
+  const heicPrepared = await request(
+    "receipts/upload-url",
+    "POST",
+    { mimeType: "image/heic", sizeBytes: heic.length },
+    { "Idempotency-Key": randomUUID() },
+  );
+  assert.equal(heicPrepared.response.status, 201);
+  const heicStorage = createClient(
+    heicPrepared.data.supabaseUrl,
+    heicPrepared.data.anonKey,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+  const heicUploaded = await heicStorage.storage
+    .from(heicPrepared.data.bucket)
+    .uploadToSignedUrl(
+      heicPrepared.data.path,
+      heicPrepared.data.token,
+      new Blob([heic], { type: "image/heic" }),
+      { contentType: "image/heic", upsert: false },
+    );
+  assert.equal(heicUploaded.error, null);
+  const heicSale = await request(
+    "sales",
+    "POST",
+    {
+      ...payload,
+      invoiceNumber: "BILL-HEIC",
+      weightKg: "1",
+      priceBahtPerKg: "1",
+      deductions: [],
+      pendingReceiptId: heicPrepared.data.id,
+      receivedFull: true,
+      confirmDuplicate: false,
+    },
+    { "Idempotency-Key": randomUUID() },
+  );
+  assert.equal(heicSale.response.status, 201);
+  assert.equal(heicSale.data.netMinor, 100);
+  const heicRecord = await pool().query(
+    "select * from public.receipt_files where sale_id=$1",
+    [heicSale.data.id],
+  );
+  assert.equal(heicRecord.rows[0].size_bytes, heic.length);
+  assert.equal(heicRecord.rows[0].mime_type, "image/heic");
+  assert.equal(
+    heicRecord.rows[0].sha256,
+    (await import("node:crypto"))
+      .createHash("sha256")
+      .update(heic)
+      .digest("hex"),
+  );
+  const heicSigned = await request("receipts/" + heicRecord.rows[0].id);
+  const heicSource = await fetch(heicSigned.data.url);
+  assert.equal(heicSource.status, 200);
+  assert.equal(Buffer.from(await heicSource.arrayBuffer()).compare(heic), 0);
+});
 test("concurrent edits reject stale versions; archive retains balances, rows and audit", async () => {
   const results = await Promise.all(
     ["สวนใหม่", "สวนอีกชื่อ"].map((name) =>
@@ -187,7 +369,7 @@ test("concurrent edits reject stale versions; archive retains balances, rows and
   assert.equal(edited.data.version, 3);
   assert.equal(edited.data.archived, true);
   assert.deepEqual((await request("summary")).data, {
-    netMinor: 1479500,
+    netMinor: 4879600,
     gardenCount: 2,
   });
   assert.equal((await request("gardens/" + gardenId)).data.openingMinor, -500);

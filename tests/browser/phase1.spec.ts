@@ -48,13 +48,66 @@ test("owner signs in, adds and edits gardens, preserves balances across devices,
   await expect(
     page.getByRole("heading", { name: "สวนบ้านใหม่" }),
   ).toBeVisible();
+  await page.getByRole("link", { name: /รายการ/ }).click();
+  await page.getByLabel("ผู้รับซื้อ").fill("ลานปาล์ม");
+  await page.getByLabel("เลขบิล").fill("BROWSER-001");
+  await page.getByLabel("น้ำหนักสุทธิ (กก.)").fill("3500");
+  await page.getByLabel("ราคาต่อกิโลกรัม (บาท)").fill("5");
+  await page.getByLabel("คำอธิบาย").fill("ค่าขนส่ง");
+  await page.getByLabel("ยอดหัก (บาท)").fill("500");
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/nV8AAAAASUVORK5CYII=",
+    "base64",
+  );
+  const attach = async () =>
+    page.getByLabel(/รูปบิล/).setInputFiles({
+      name: "receipt.png",
+      mimeType: "image/png",
+      buffer: png,
+    });
+  await attach();
+  await page.getByLabel("ยืนยันว่าได้รับเงินเต็มจำนวนแล้ว").check();
+  await page.getByRole("button", { name: "บันทึกการขาย" }).click();
+  await expect(page.getByText("บันทึกบิลขายแล้ว")).toBeVisible();
+  await expect(page.locator(".sale-row")).toHaveCount(1);
+  await expect(page.locator(".sale-row b")).toHaveText("17,000.00บาท");
+  const receiptTab = page.waitForEvent("popup");
+  await page.getByRole("button", { name: "เปิดรูปต้นฉบับ" }).click();
+  const receiptPage = await receiptTab;
+  await expect(receiptPage).toHaveURL(
+    /storage\/v1\/object\/sign\/palm-receipts/,
+  );
+  await expect(receiptPage.locator("img")).toBeVisible();
+  await page.getByLabel("ผู้รับซื้อ").fill("ลานปาล์ม");
+  await page.getByLabel("เลขบิล").fill("BROWSER-001");
+  await page.getByLabel("น้ำหนักสุทธิ (กก.)").fill("3500");
+  await page.getByLabel("ราคาต่อกิโลกรัม (บาท)").fill("5");
+  await page.getByLabel("คำอธิบาย").fill("ค่าขนส่ง");
+  await page.getByLabel("ยอดหัก (บาท)").fill("500");
+  await attach();
+  await page.getByLabel("ยืนยันว่าได้รับเงินเต็มจำนวนแล้ว").check();
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "บันทึกการขาย" }).click();
+  await expect(page.locator(".sale-form [role=alert]")).toContainText(
+    "โปรดตรวจบิลที่อาจซ้ำ",
+  );
+  await expect(page.getByLabel("ผู้รับซื้อ")).toHaveValue("ลานปาล์ม");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "บันทึกการขาย" }).click();
+  await expect(page.locator(".sale-row")).toHaveCount(2);
+  await page.getByRole("link", { name: "ภาพรวม", exact: true }).click();
+  await expect(page.locator(".total")).toHaveText("76,800.50");
+  await page
+    .getByRole("link")
+    .filter({ has: page.getByText("สวนบ้านใหม่", { exact: true }) })
+    .click();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "เก็บสวนเป็นประวัติ" }).click();
   await expect(
     page.getByRole("button", { name: "นำสวนกลับมาใช้งาน" }),
   ).toBeVisible();
   await page.getByRole("link", { name: "ภาพรวม", exact: true }).click();
-  await expect(page.locator(".total")).toHaveText("42,800.50");
+  await expect(page.locator(".total")).toHaveText("76,800.50");
   const second = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
@@ -63,7 +116,7 @@ test("owner signs in, adds and edits gardens, preserves balances across devices,
   await other.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
   await other.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
   await other.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
-  await expect(other.locator(".total")).toHaveText("42,800.50");
+  await expect(other.locator(".total")).toHaveText("76,800.50");
   await second.close();
   expect(
     await page.evaluate(

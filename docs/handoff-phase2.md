@@ -1,10 +1,10 @@
-# ส่งต่องาน Palm Ledger — เริ่ม Phase 2
+# ส่งต่องาน Palm Ledger — ผล Phase 2
 
 อัปเดต 21 ตุลาคม 2569 (Asia/Bangkok) · Repository `SitthiwatR/palm-ledger` · ใช้ `main` ล่าสุด
 
 ## ข้อตกลงและผลเฟสแรก
 
-**Phase 1 เสร็จและผู้ใช้รับงานแล้ว** ผู้ใช้ยืนยันว่า login/UI และการทดสอบเฟสแรกใช้งานได้ปกติ และสั่งให้ทำเรื่องถัดไปในแชทใหม่ งานของแชทนี้คือบันทึกผลและส่งต่อ ไม่ได้เริ่ม implement Phase 2
+**Phase 1 เสร็จและผู้ใช้รับงานแล้ว; Phase 2 implement และผ่านการตรวจใน local test stack แล้ว** รายละเอียดการปิดงาน commit/push และ Vercel deployment จะบันทึกต่อด้านล่างหลังตรวจจริง
 
 - Next.js รวม frontend/API, TypeScript, Node.js 24, Supabase PostgreSQL/Auth
 - บัญชีเจ้าของคนเดียว ใช้ username/password, session 30 วัน, logout และคำสั่งผู้ดูแลสร้าง/รีเซ็ตรหัส
@@ -40,9 +40,9 @@
 
 เครื่องมือ Vercel/Supabase plugins อาจต่างกันในแชทใหม่ ให้ตรวจเครื่องมือที่มีจริง ในรอบนี้ใช้ Vercel REST ผ่าน credential/proxy ที่ตั้งไว้ตามปกติ Cloud network policy ยังไม่อนุญาตเว็บจริงและโดเมน Supabase ใหม่สำหรับตรวจโดยตรง มี draft เพิ่มโดเมนไว้แต่ยังไม่มีหลักฐานว่า publish แล้ว อย่าข้าม proxy/ปิด TLS เพื่อทดสอบ
 
-## Phase 2 ที่ต้องทำ
+## Phase 2 ที่ทำแล้ว
 
-ทำการบันทึกขายจากหน้าจอถึง PostgreSQL และ private Storage ให้ครบ ไม่เปลี่ยนเป็น prototype/localStorage และไม่ใช้ `schema.sql` ที่ root ซึ่งเป็น SQLite อ้างอิงรุ่นเก่า
+ทำการบันทึกขายจากหน้าจอถึง PostgreSQL และ private Storage โดยคง UI/Three.js เดิม ไม่ใช้ `schema.sql` ที่ root ซึ่งเป็น SQLite อ้างอิงรุ่นเก่า
 
 - เลือกสวน วันที่ ผู้รับซื้อ เลขบิล กรอกน้ำหนักสุทธิ ราคาต่อกิโลกรัม และรายการหักพร้อมคำอธิบาย บันทึกเฉพาะการขายที่รับเงินเต็มจำนวน
 - คำนวณฝั่งเซิร์ฟเวอร์ด้วย integer/decimal arithmetic: 3,500 กก. × 5 บาท − 500 บาท = รายรับ 17,000 บาท ส่งผลเข้ายอดสุทธิรายสวนและยอดรวมจริง
@@ -51,7 +51,9 @@
 - สเปกรูปรองรับ JPEG/PNG/WebP/HEIC/HEIF ไม่เกิน **10 MB** เก็บต้นฉบับและสร้าง preview ที่จำเป็น ห้ามลดขอบเขตหรือบีบอัดทับต้นฉบับเพื่อหลบข้อจำกัดโฮสต์ ต้องพิสูจน์ upload limit/การแปลงภาพบน runtime จริง เช่นออกสิทธิ์อัปโหลดตรงไป Storage หลังตรวจ owner แทนส่งไฟล์ใหญ่ผ่าน Next.js function ทั้งก้อน
 - ข้อมูลฟอร์มยังอยู่เมื่อบันทึก/upload ล้มเหลว ไม่สร้างรายรับซ้ำหรือข้อมูลครึ่งชุด มีวิธีจัดการ orphan uploads
 
-**Dependency สำคัญ:** `compose.local.yml` ปัจจุบันมี PostgreSQL/Auth/PostgREST/gateway เท่านั้น ยังไม่มี Supabase Storage ต้องเตรียม Storage สำหรับทดสอบแยกอย่างเหมาะสม ไม่ใช้รูป/ฐาน production เป็น test fixtures และไม่อ้างว่า integration ผ่านจาก mock เพียงอย่างเดียว
+**ผลทดสอบ:** PostgreSQL/Auth/PostgREST และ Supabase Storage API จริงทำงานใน local test stack ที่แยกจาก production; browser tests รันกับ local services เท่านั้น ไม่ได้สร้างรายการขายหรือแตะ Storage บน hosted production
+
+**ขอบเขตหลักฐาน:** ทดสอบ HEIC fixture จริงจากตัวอย่าง libheif ซึ่งพิสูจน์การเก็บ/อ่านไฟล์ HEIC แต่ยังไม่ได้ทดสอบภาพจาก iPhone โดยตรงหรือทดสอบ Safari บนอุปกรณ์จริง จึงคง acceptance ข้อนี้ไว้ pending ตามแผน
 
 OCR อยู่ Phase 10, รายจ่ายอยู่ Phase 3, ค่าแรงทีมผูกบิลอยู่ Phase 4, สำรองตาม Phase 8–9 อย่าเริ่มงานเหล่านี้แทน Phase 2
 
@@ -71,4 +73,4 @@ TEST_APP_MODE=production npm run test:browser
 
 คำสั่งชุดนี้สำหรับ bash ใน cloud ใช้ Node.js 24 และ Docker; อย่ารัน API/browser suites พร้อมกันเพราะใช้ test database/พอร์ตเดียวกัน และอย่า build ขณะ test dev server ใช้ `.next` อยู่ Tests โหลด `.env.test.local` และมี guard ว่าชี้เฉพาะฐานทดสอบ localhost เท่านั้น ห้ามแก้ guard ให้ชี้ production
 
-เมื่อพัฒนา Phase 2 เสร็จ ให้ทดสอบส่วนที่เกี่ยวข้อง อัปเดตแผน/ผลตรวจ commit และ push ตาม workflow เดิม ตรวจ Vercel deployment จริงก่อนรายงานว่า deploy สำเร็จ โดยรักษาข้อมูลและบัญชีเดิม
+เมื่อจบการ deploy ให้บันทึก commit และ deployment ID/status ในเอกสารนี้และ [แผน](../plans/palm-ledger.md) โดยรักษาข้อมูลและบัญชีเดิม

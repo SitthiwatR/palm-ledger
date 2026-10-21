@@ -98,22 +98,90 @@ execFileSync(
     },
   },
 );
+execFileSync(
+  "docker",
+  [
+    "compose",
+    "--project-name",
+    test ? "palm-ledger-test" : "palm-ledger-dev",
+    "--env-file",
+    filename,
+    "-f",
+    "compose.local.yml",
+    "exec",
+    "-T",
+    "gateway",
+    "nginx",
+    "-s",
+    "reload",
+  ],
+  { stdio: "ignore" },
+);
+let storageSearchPathConfigured = false;
 for (let attempt = 0; attempt < 60; attempt++) {
-  const ok = await fetch(values.SUPABASE_URL + "/auth/v1/health")
+  const authOk = await fetch(values.SUPABASE_URL + "/auth/v1/health")
     .then((r) => r.ok)
     .catch(() => false);
-  if (ok) {
+  if (authOk && !storageSearchPathConfigured) {
     // Supabase's PostgreSQL image normally supplies this modern JWT helper.
     // GoTrue's standalone bootstrap ships its legacy implementation instead.
     const db = new Pool({ connectionString: values.DATABASE_URL });
+    const storageSchema = await db.query(
+      "select to_regnamespace('storage') is not null as ready",
+    );
+    if (!storageSchema.rows[0].ready) {
+      await db.end();
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      continue;
+    }
     try {
       await db.query(`create or replace function auth.uid() returns uuid language sql stable as $$
       select coalesce(nullif(current_setting('request.jwt.claim.sub',true),''),
       nullif(current_setting('request.jwt.claims',true),'')::jsonb ->> 'sub')::uuid $$`);
+      await db.query("alter role postgres set search_path to storage, public");
+      await db.query(
+        "grant usage on schema storage to anon, authenticated, service_role",
+      );
+      await db.query(
+        "grant all privileges on all tables in schema storage to service_role",
+      );
+      await db.query(
+        "grant usage, select on all sequences in schema storage to service_role",
+      );
     } finally {
       await db.end();
     }
-    console.log("Local PostgreSQL, Supabase Auth and REST are available.");
+    execFileSync(
+      "docker",
+      [
+        "compose",
+        "--project-name",
+        test ? "palm-ledger-test" : "palm-ledger-dev",
+        "--env-file",
+        filename,
+        "-f",
+        "compose.local.yml",
+        "restart",
+        "storage",
+      ],
+      { stdio: "ignore" },
+    );
+    storageSearchPathConfigured = true;
+  }
+  const storageOk =
+    authOk &&
+    (await fetch(values.SUPABASE_URL + "/storage/v1/bucket", {
+      headers: {
+        apikey: values.SUPABASE_SERVICE_ROLE_KEY || "",
+        Authorization: `Bearer ${values.SUPABASE_SERVICE_ROLE_KEY || ""}`,
+      },
+    })
+      .then((r) => r.ok)
+      .catch(() => false));
+  if (authOk && storageOk) {
+    console.log(
+      "Local PostgreSQL, Supabase Auth, REST and Storage are available.",
+    );
     process.exit(0);
   }
   await new Promise((resolve) => setTimeout(resolve, 1000));
