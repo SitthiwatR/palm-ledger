@@ -13,6 +13,7 @@ test-results/
 *.tsbuildinfo
 next-env.d.ts
 .certificates/
+public/ocr/
 
 # Python
 .venv/

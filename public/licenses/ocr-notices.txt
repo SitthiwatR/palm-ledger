@@ -1,0 +1,18 @@
+Palm Ledger browser receipt reading
+
+Tesseract.js 7.0.0 and Tesseract.js-core: Apache License 2.0.
+Source: https://github.com/naptha/tesseract.js
+Engine notices are served alongside the generated /ocr assets.
+
+Thai and English Tesseract language data: Apache License 2.0.
+Pinned npm distributions: @tesseract.js-data/tha 1.0.0 and
+@tesseract.js-data/eng 1.0.0 (4.0.0 language data).
+Source: https://github.com/naptha/tessdata
+
+HEIC-to 1.6.6: GNU Lesser General Public License v3.0.
+Source corresponding to this unmodified, dynamically imported library:
+https://github.com/hoppergee/heic-to/tree/v1.6.6
+The exact npm package (including the decoder source) is pinned by package-lock.json:
+https://registry.npmjs.org/heic-to/-/heic-to-1.6.6.tgz
+Build instructions and underlying libheif version are in its README.
+LGPL and GPL license texts are served in this directory.

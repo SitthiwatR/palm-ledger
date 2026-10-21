@@ -2,6 +2,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createHash, randomUUID } from "node:crypto";
+import { calculateLabor } from "../lib/sale-math";
 import type { PoolClient } from "pg";
 import {
   AppError,
@@ -79,6 +80,26 @@ const saleRequest = z
           .strict(),
       )
       .max(40),
+    labor: z
+      .array(
+        z
+          .object({
+            mode: z.enum(["daily", "weight"]),
+            payee: z.string().trim().min(1).max(120),
+            quantity: z.string().regex(/^\d{1,7}(?:\.\d{1,3})?$/),
+            rateBaht: z.string().regex(/^\d{1,6}(?:\.\d{1,2})?$/),
+          })
+          .strict(),
+      )
+      .max(20)
+      .refine(
+        (items) =>
+          !items.length ||
+          (items.every((item) => item.mode === items[0].mode) &&
+            (items[0].mode !== "weight" || items.length === 1)),
+        "เลือกวิธีคิดค่าแรงแบบเดียวต่อบิล",
+      )
+      .default([]),
     pendingReceiptId: uuid,
     receivedFull: z.literal(true),
     confirmDuplicate: z.boolean().default(false),
@@ -90,9 +111,14 @@ function garden(row: Record<string, unknown>) {
     name: row.name,
     openingMinor: Number(row.opening_minor),
     netMinor: Number(row.net_minor ?? row.opening_minor),
+    laborPendingMinor: Number(row.labor_minor ?? 0),
     archived: row.archived,
     version: row.version,
   };
+}
+function balanceJoins(ownerParameter: 1 | 2) {
+  return `left join (select garden_id,sum(net_minor) net_minor from public.sales where owner_id=$${ownerParameter} group by garden_id) s on s.garden_id=g.id
+    left join (select s.garden_id,sum(l.amount_minor) labor_minor from public.sale_labor l join public.sales s on s.id=l.sale_id and s.owner_id=l.owner_id where l.owner_id=$${ownerParameter} group by s.garden_id) l on l.garden_id=g.id`;
 }
 function decimalMinor(value: string) {
   const [whole, fraction = ""] = value.split(".");
@@ -106,6 +132,7 @@ function saleDto(
   row: Record<string, unknown>,
   deductions: Record<string, unknown>[],
   receipt?: Record<string, unknown>,
+  labor: Record<string, unknown>[] = [],
 ) {
   return {
     id: row.id,
@@ -123,6 +150,16 @@ function saleDto(
     netMinor: Number(row.net_minor),
     deductions: deductions.map((item) => ({
       description: item.description,
+      amountMinor: Number(item.amount_minor),
+    })),
+    labor: labor.map((item) => ({
+      id: item.id,
+      mode: item.mode,
+      payee: item.payee,
+      quantity: String(
+        Number(item.basis_units) / (item.mode === "daily" ? 2 : 1000),
+      ),
+      rateBaht: (Number(item.rate_minor) / 100).toFixed(2),
       amountMinor: Number(item.amount_minor),
     })),
     receipt: receipt
@@ -241,6 +278,38 @@ async function receiptUpload(req: NextRequest, owner: Owner) {
   });
   return json(data, 201);
 }
+async function validatedReceipt(pendingReceiptId: string, owner: Owner) {
+  const storage = supabase(true).storage.from("palm-receipts");
+  const pending = (
+    await pool().query(
+      "select * from private.pending_receipt_uploads where id=$1 and owner_id=$2 and expires_at>now()",
+      [pendingReceiptId, owner.id],
+    )
+  ).rows[0];
+  if (!pending)
+    throw new AppError(422, "RECEIPT_REQUIRED", "กรุณาแนบรูปบิลใหม่ก่อนบันทึก");
+  const downloaded = await storage.download(pending.storage_key);
+  if (downloaded.error || !downloaded.data)
+    throw new AppError(
+      422,
+      "RECEIPT_UPLOAD_MISSING",
+      "อัปโหลดรูปไม่สำเร็จ กรุณาแนบรูปอีกครั้ง",
+    );
+  const bytes = Buffer.from(await downloaded.data.arrayBuffer());
+  if (
+    bytes.length !== pending.size_bytes ||
+    bytes.length > 10 * 1024 * 1024 ||
+    downloaded.data.type !== pending.mime_type ||
+    !validImageSignature(bytes, pending.mime_type)
+  )
+    throw new AppError(
+      422,
+      "RECEIPT_INVALID",
+      "ชนิดหรือขนาดรูปบิลไม่ถูกต้อง กรุณาแนบรูปใหม่",
+    );
+  const checksum = createHash("sha256").update(bytes).digest("hex");
+  return { pending, checksum };
+}
 async function saveSale(req: NextRequest, owner: Owner) {
   const input = saleRequest.parse(await body(req));
   const key = req.headers.get("idempotency-key");
@@ -251,7 +320,10 @@ async function saveSale(req: NextRequest, owner: Owner) {
       "กรุณาระบุรหัสคำขอบันทึก",
     );
   const { confirmDuplicate: _confirm, ...stableInput } = input;
-  const fingerprint = hash(JSON.stringify(stableInput));
+  const { labor: _labor, ...legacyInput } = stableInput;
+  const fingerprint = hash(
+    JSON.stringify(input.labor.length ? stableInput : legacyInput),
+  );
   const prior = (
     await pool().query(
       "select request_hash,response from private.idempotency_requests where owner_id=$1 and key=$2",
@@ -278,6 +350,16 @@ async function saveSale(req: NextRequest, owner: Owner) {
     (sum, item) => sum + item.amount,
     0n,
   );
+  let labor;
+  try {
+    labor = input.labor.map((item) => ({ ...item, ...calculateLabor(item) }));
+  } catch (problem) {
+    throw new AppError(
+      422,
+      "INVALID_LABOR",
+      problem instanceof Error ? problem.message : "กรุณาตรวจค่าแรง",
+    );
+  }
   if (
     grams < 1n ||
     grams > 1_000_000_000n ||
@@ -290,41 +372,20 @@ async function saveSale(req: NextRequest, owner: Owner) {
       "VALIDATION",
       "น้ำหนักหรือราคาขายเกินขอบเขตที่รองรับ",
     );
-  if (totalDeduction > gross || gross - totalDeduction < 1n)
+  if (
+    deductions.some((item) => item.amount < 1n) ||
+    totalDeduction > gross ||
+    gross - totalDeduction < 1n
+  )
     throw new AppError(
       422,
       "INVALID_DEDUCTIONS",
       "ยอดหักต้องไม่เกินยอดขายและต้องเหลือรายรับสุทธิ",
     );
-  const storage = supabase(true).storage.from("palm-receipts");
-  const pending = (
-    await pool().query(
-      "select * from private.pending_receipt_uploads where id=$1 and owner_id=$2 and expires_at>now()",
-      [input.pendingReceiptId, owner.id],
-    )
-  ).rows[0];
-  if (!pending)
-    throw new AppError(422, "RECEIPT_REQUIRED", "กรุณาแนบรูปบิลใหม่ก่อนบันทึก");
-  const downloaded = await storage.download(pending.storage_key);
-  if (downloaded.error || !downloaded.data)
-    throw new AppError(
-      422,
-      "RECEIPT_UPLOAD_MISSING",
-      "อัปโหลดรูปไม่สำเร็จ กรุณาแนบรูปอีกครั้ง",
-    );
-  const bytes = Buffer.from(await downloaded.data.arrayBuffer());
-  if (
-    bytes.length !== pending.size_bytes ||
-    bytes.length > 10 * 1024 * 1024 ||
-    downloaded.data.type !== pending.mime_type ||
-    !validImageSignature(bytes, pending.mime_type)
-  )
-    throw new AppError(
-      422,
-      "RECEIPT_INVALID",
-      "ชนิดหรือขนาดรูปบิลไม่ถูกต้อง กรุณาแนบรูปใหม่",
-    );
-  const checksum = createHash("sha256").update(bytes).digest("hex");
+  const { pending, checksum } = await validatedReceipt(
+    input.pendingReceiptId,
+    owner,
+  );
   const result = await transaction(async (db) => {
     await assertOwner(db, owner);
     await db.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [
@@ -353,6 +414,18 @@ async function saveSale(req: NextRequest, owner: Owner) {
     ).rows[0];
     if (!gardenRow)
       throw new AppError(404, "GARDEN_NOT_FOUND", "ไม่พบสวนที่ยังใช้งาน");
+    const pendingRow = (
+      await db.query(
+        "select id from private.pending_receipt_uploads where id=$1 and owner_id=$2 and expires_at>now() for update",
+        [pending.id, owner.id],
+      )
+    ).rows[0];
+    if (!pendingRow)
+      throw new AppError(
+        409,
+        "RECEIPT_ALREADY_USED",
+        "รูปนี้ถูกใช้กับรายการอื่นแล้ว กรุณาตรวจรายการขาย",
+      );
     const matches = (
       await db.query(
         "select id,garden_id,sale_date,buyer,invoice_number,net_minor from public.sales where owner_id=$1 and garden_id=$2 and lower(invoice_number)=lower($3)",
@@ -396,6 +469,24 @@ async function saveSale(req: NextRequest, owner: Owner) {
         "insert into public.sale_deductions(owner_id,sale_id,description,amount_minor) values($1,$2,$3,$4)",
         [owner.id, sale.id, item.description, Number(item.amount)],
       );
+    for (const item of labor) {
+      await db.query(
+        "insert into public.sale_labor(owner_id,sale_id,mode,payee,basis_units,rate_minor,amount_minor) values($1,$2,$3,$4,$5,$6,$7)",
+        [
+          owner.id,
+          sale.id,
+          item.mode,
+          item.payee,
+          item.basisUnits,
+          item.rateMinor,
+          item.amountMinor,
+        ],
+      );
+      await db.query(
+        "insert into public.labor_profiles(owner_id,mode,payee,rate_minor) values($1,$2,$3,$4) on conflict(owner_id,mode,payee) do update set rate_minor=excluded.rate_minor,updated_at=now()",
+        [owner.id, item.mode, item.payee, item.rateMinor],
+      );
+    }
     await db.query(
       "insert into public.receipt_files(owner_id,sale_id,storage_key,mime_type,size_bytes,sha256) values($1,$2,$3,$4,$5,$6)",
       [
@@ -414,8 +505,13 @@ async function saveSale(req: NextRequest, owner: Owner) {
       gardenId: input.gardenId,
       netMinor: netNumber,
       receiptSha256: checksum,
+      labor,
     });
-    const response = { id: sale.id, netMinor: netNumber };
+    const response = {
+      id: sale.id,
+      netMinor: netNumber,
+      laborMinor: labor.reduce((sum, item) => sum + item.amountMinor, 0),
+    };
     await db.query(
       "insert into private.idempotency_requests(owner_id,key,request_hash,response) values($1,$2,$3,$4)",
       [owner.id, key, fingerprint, JSON.stringify(response)],
@@ -443,7 +539,7 @@ function json(data: unknown, status = 200) {
 async function body(req: NextRequest) {
   if (!req.headers.get("content-type")?.startsWith("application/json"))
     throw new AppError(415, "JSON_REQUIRED", "กรุณาส่งข้อมูล JSON");
-  if (Number(req.headers.get("content-length")) > 8192)
+  if (Number(req.headers.get("content-length")) > 32768)
     throw new AppError(413, "BODY_TOO_LARGE", "ข้อมูลใหญ่เกินไป");
   const reader = req.body?.getReader();
   if (!reader)
@@ -455,7 +551,7 @@ async function body(req: NextRequest) {
       const { value, done } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > 8192) {
+      if (size > 32768) {
         await reader.cancel();
         throw new AppError(413, "BODY_TOO_LARGE", "ข้อมูลใหญ่เกินไป");
       }
@@ -561,7 +657,13 @@ async function writeGarden(req: NextRequest, owner: Owner, id?: string) {
       before,
       result,
     );
-    const response = garden(result);
+    const balanced = (
+      await db.query(
+        `select g.*,g.opening_minor+coalesce(s.net_minor,0)-coalesce(l.labor_minor,0) net_minor,coalesce(l.labor_minor,0) labor_minor from public.gardens g ${balanceJoins(2)} where g.id=$1 and g.owner_id=$2`,
+        [result.id, owner.id],
+      )
+    ).rows[0];
+    const response = garden(balanced);
     await db.query(
       "insert into private.idempotency_requests(owner_id,key,request_hash,response) values ($1,$2,$3,$4)",
       [owner.id, key, fingerprint, JSON.stringify(response)],
@@ -623,19 +725,20 @@ export async function handle(
       return json({ username: owner.username });
     if (route === "summary" && method === "GET") {
       const rows = await pool().query(
-        `select coalesce(sum(g.opening_minor + coalesce(s.net_minor,0)),0)::text as total,count(*)::int as count
-         from public.gardens g left join (select garden_id,sum(net_minor) net_minor from public.sales where owner_id=$1 group by garden_id) s on s.garden_id=g.id where g.owner_id=$1`,
+        `select coalesce(sum(g.opening_minor + coalesce(s.net_minor,0)-coalesce(l.labor_minor,0)),0)::text as total,count(*)::int as count,
+         coalesce(sum(l.labor_minor),0)::text labor_minor from public.gardens g ${balanceJoins(1)} where g.owner_id=$1`,
         [owner.id],
       );
       return json({
         netMinor: Number(rows.rows[0].total),
         gardenCount: rows.rows[0].count,
+        laborPendingMinor: Number(rows.rows[0].labor_minor),
       });
     }
     if (route === "gardens" && method === "GET") {
       const rows = await pool().query(
-        `select g.*,g.opening_minor + coalesce(s.net_minor,0) net_minor from public.gardens g
-         left join (select garden_id,sum(net_minor) net_minor from public.sales where owner_id=$1 group by garden_id) s on s.garden_id=g.id
+        `select g.*,g.opening_minor + coalesce(s.net_minor,0)-coalesce(l.labor_minor,0) net_minor,coalesce(l.labor_minor,0) labor_minor from public.gardens g
+         ${balanceJoins(1)}
          where g.owner_id=$1 order by g.archived,g.name,g.id`,
         [owner.id],
       );
@@ -649,8 +752,8 @@ export async function handle(
       if (method === "GET") {
         const row = (
           await pool().query(
-            `select g.*,g.opening_minor + coalesce(s.net_minor,0) net_minor from public.gardens g
-             left join (select garden_id,sum(net_minor) net_minor from public.sales where owner_id=$2 group by garden_id) s on s.garden_id=g.id
+            `select g.*,g.opening_minor + coalesce(s.net_minor,0)-coalesce(l.labor_minor,0) net_minor,coalesce(l.labor_minor,0) labor_minor from public.gardens g
+             ${balanceJoins(2)}
              where g.id=$1 and g.owner_id=$2`,
             [id, owner.id],
           )
@@ -661,30 +764,69 @@ export async function handle(
     }
     if (route === "receipts/upload-url" && method === "POST")
       return await receiptUpload(req, owner);
+    if (route === "receipts/verify" && method === "POST") {
+      const input = z
+        .object({ pendingReceiptId: uuid })
+        .strict()
+        .parse(await body(req));
+      const { pending, checksum } = await validatedReceipt(
+        input.pendingReceiptId,
+        owner,
+      );
+      return json({ id: pending.id, sha256: checksum });
+    }
+    if (route === "sales/preferences" && method === "GET") {
+      const latest = (
+        await pool().query(
+          "select id,garden_id,buyer from public.sales where owner_id=$1 order by created_at desc limit 1",
+          [owner.id],
+        )
+      ).rows[0];
+      const profiles = (
+        await pool().query(
+          "select mode,payee,rate_minor from public.labor_profiles where owner_id=$1 order by updated_at desc limit 100",
+          [owner.id],
+        )
+      ).rows;
+      const lastLabor = latest
+        ? (
+            await pool().query(
+              "select mode,payee,rate_minor,basis_units from public.sale_labor where sale_id=$1 and owner_id=$2 order by created_at,id",
+              [latest.id, owner.id],
+            )
+          ).rows
+        : [];
+      return json({
+        gardenId: latest?.garden_id,
+        buyer: latest?.buyer,
+        profiles: profiles.map((p) => ({
+          mode: p.mode,
+          payee: p.payee,
+          rateBaht: (Number(p.rate_minor) / 100).toFixed(2),
+        })),
+        lastLabor: lastLabor.map((p) => ({
+          mode: p.mode,
+          payee: p.payee,
+          rateBaht: (Number(p.rate_minor) / 100).toFixed(2),
+          quantity: p.mode === "daily" ? "1" : "",
+        })),
+      });
+    }
     if (route === "sales" && method === "POST")
       return await saveSale(req, owner);
     if (route === "sales" && method === "GET") {
       const rows = await pool().query(
-        `select s.*,g.name garden_name from public.sales s join public.gardens g on g.id=s.garden_id
+        `select s.*,to_char(s.sale_date,'YYYY-MM-DD') sale_date,g.name garden_name,
+        coalesce((select jsonb_agg(jsonb_build_object('description',d.description,'amount_minor',d.amount_minor) order by d.id) from public.sale_deductions d where d.sale_id=s.id and d.owner_id=s.owner_id),'[]'::jsonb) deductions,
+        (select jsonb_build_object('id',r.id,'mime_type',r.mime_type,'size_bytes',r.size_bytes,'sha256',r.sha256) from public.receipt_files r where r.sale_id=s.id and r.owner_id=s.owner_id limit 1) receipt,
+        coalesce((select jsonb_agg(to_jsonb(l) order by l.created_at,l.id) from public.sale_labor l where l.sale_id=s.id and l.owner_id=s.owner_id),'[]'::jsonb) labor
+        from public.sales s join public.gardens g on g.id=s.garden_id
         where s.owner_id=$1 order by s.sale_date desc,s.created_at desc limit 200`,
         [owner.id],
       );
-      const sales = [];
-      for (const row of rows.rows) {
-        const deductions = (
-          await pool().query(
-            "select description,amount_minor from public.sale_deductions where sale_id=$1 and owner_id=$2 order by id",
-            [row.id, owner.id],
-          )
-        ).rows;
-        const receipt = (
-          await pool().query(
-            "select id,mime_type,size_bytes,sha256 from public.receipt_files where sale_id=$1 and owner_id=$2",
-            [row.id, owner.id],
-          )
-        ).rows[0];
-        sales.push(saleDto(row, deductions, receipt));
-      }
+      const sales = rows.rows.map((row) =>
+        saleDto(row, row.deductions, row.receipt ?? undefined, row.labor),
+      );
       return json({ sales });
     }
     if (path.length === 2 && path[0] === "receipts" && method === "GET") {

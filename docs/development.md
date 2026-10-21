@@ -1,4 +1,4 @@
-# พัฒนาและทดสอบ Palm Ledger — ขั้น 1
+# พัฒนาและทดสอบ Palm Ledger
 
 ## สิ่งที่ทำแล้ว
 
@@ -6,11 +6,13 @@
 
 Next.js หน้าเว็บและ API ในโปรเจกต์เดียว เข้าด้วยชื่อผู้ใช้/รหัสผ่านผ่าน Supabase Auth, session ฝั่งเซิร์ฟเวอร์ 30 วัน, ออกจากระบบ/ผู้ดูแลตั้งรหัสใหม่, เพิ่ม/แก้ชื่อ/แก้ยอดยกมา/เก็บสวนเป็นประวัติ, ยอดรวมทุกสวน, audit, ป้องกันคำขอซ้ำและแท็บเก่าทับข้อมูล
 
-ยังไม่มีรายการขาย/รายจ่าย รูปบิล OCR หรือระบบสำรองตามขั้นถัดไป ต้นแบบเดิมเป็นไฟล์แยก ไม่ใช่ frontend ของระบบฐานข้อมูลใหม่นี้
+มีรายการขายพร้อมรูปต้นฉบับใน private Storage และเพิ่ม workflow รูปก่อน + OCR ฟรีในเบราว์เซอร์ + ค่าแรงรายวัน/รายน้ำหนักที่ผูกบิลแล้ว ดู [รายละเอียดรอบปรับ workflow](receipt-first-workflow.md) ส่วนรายจ่ายทั่วไป ปุ๋ย การจ่ายเงินจริง และระบบสำรองยังอยู่ในแผนเฟสถัดไป
 
 ## UI และสวนปาล์ม 3D
 
 หน้า login/ภาพรวมใช้โทนเขียว–ครีม, Noto Sans Thai ที่เสิร์ฟจากแอพเอง, ปุ่มแสดง/ซ่อนรหัสผ่าน, ยอดเงิน/จำนวนสวนจริง และเมนู sidebar บน desktop หรือเมนูด้านล่างบนมือถือ ไม่เพิ่มยอดหรือกราฟตัวอย่างเข้าข้อมูลจริง
+
+`npm ci`, `npm run dev` และ build เตรียม OCR worker, WASM และโมเดลไทย/อังกฤษไว้ใน `public/ocr` จาก dependencies ที่ตรึงเวอร์ชัน ไฟล์ generated ไม่อยู่ใน Git และไม่ใช้ CDN ภายนอกในการอ่านบิล รูปต้นฉบับยังอัปโหลดตรงเข้า private Storage ส่วน HEIC preview/OCR แปลงบนเครื่องผู้ใช้ รายละเอียดและข้อจำกัดอยู่ในเอกสาร workflow
 
 `src/ui/palm-landscape.tsx` แสดงภาพ SVG ก่อน แล้วโหลด `palm-scene.ts`/Three.js แยกเมื่อเห็นพื้นที่ภาพ ฉากสร้างด้วย geometry ในโค้ด ไม่มี asset ภายนอก จำกัด pixel ratio 1.6 และ render ไม่เกิน 30 fps หยุด animation เมื่อซ่อน tab, ออกนอก viewport หรือเปิด Reduce Motion; ใช้ภาพนิ่ง SVG หาก WebGL/chunk ใช้ไม่ได้ และกลับไปแสดง SVG เมื่อ context สูญหาย พร้อม dispose GPU resources เมื่อออกจากหน้า ใบอนุญาต Three.js/Noto Sans Thai อยู่ใน `public/licenses`
 
@@ -150,4 +152,4 @@ node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts
 
 ## ผลตรวจปัจจุบัน
 
-Phase 2 local checks: model tests 4/4; API integration tests 21/21 กับ PostgreSQL/Auth/PostgREST/Storage จริง; Chromium browser tests 4/4; `typecheck`, `format:check` และ production build ผ่าน Commit `bb0fad8` (feature) และ `7315442` (เอกสาร) ถูก push ไป `main`; production `/records` ตอบ 200 และ unauthenticated sales API ตอบ 401 แต่ยังยืนยัน Vercel deployment state/commit หรือ migration log ไม่ได้เพราะ Vercel API ไม่มีสิทธิ์ทีม (403). ส่วน hosted sale flow และ Safari/WebKit บนอุปกรณ์จริงยังไม่ผ่านการตรวจ ผล local เหล่านี้ไม่ใช่หลักฐานว่าทดสอบบน production หรือบน iPhone แล้ว
+รอบ workflow รูปก่อน: model tests 4/4; unit/API/CLI tests 28/28 กับ PostgreSQL/Auth/PostgREST/Storage จริง; Chromium browser tests 5/5; `typecheck`, `format:check` และ production build ผ่าน Baseline Phase 2 บน `main` ที่ `911322c` ตรวจ Vercel ได้ READY พร้อม migration log หลังผู้ใช้เพิ่มสิทธิ์แล้ว รายละเอียด deployment รอบเปลี่ยน workflow อยู่ใน [receipt-first-workflow.md](receipt-first-workflow.md) ส่วน hosted sale flow และ Safari/WebKit บนอุปกรณ์จริงยังต้องตรวจแยก ผล local เหล่านี้ไม่ใช่หลักฐานว่าทดสอบบน production หรือบน iPhone แล้ว

@@ -2,6 +2,8 @@ import { test, expect } from "@playwright/test";
 import type { ChildProcess } from "node:child_process";
 import { prepare, password, username, startApp, stopApp } from "../support";
 import { manageOwner } from "../../scripts/owner";
+import { receiptFixture } from "./receipt-fixture";
+import { readFileSync } from "node:fs";
 
 let app: ChildProcess;
 test.beforeAll(async () => {
@@ -13,7 +15,17 @@ test("owner signs in, adds and edits gardens, preserves balances across devices,
   page,
   browser,
 }) => {
+  test.setTimeout(120000);
   const errors: string[] = [];
+  const externalRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      url.protocol.startsWith("http") &&
+      !["127.0.0.1", "localhost"].includes(url.hostname)
+    )
+      externalRequests.push(url.origin);
+  });
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
   await expect(page).toHaveURL(/\/login$/);
@@ -49,28 +61,49 @@ test("owner signs in, adds and edits gardens, preserves balances across devices,
     page.getByRole("heading", { name: "สวนบ้านใหม่" }),
   ).toBeVisible();
   await page.getByRole("link", { name: /รายการ/ }).click();
-  await page.getByLabel("ผู้รับซื้อ").fill("ลานปาล์ม");
-  await page.getByLabel("เลขบิล").fill("BROWSER-001");
-  await page.getByLabel("น้ำหนักสุทธิ (กก.)").fill("3500");
-  await page.getByLabel("ราคาต่อกิโลกรัม (บาท)").fill("5");
-  await page.getByLabel("คำอธิบาย").fill("ค่าขนส่ง");
-  await page.getByLabel("ยอดหัก (บาท)").fill("500");
-  const png = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/nV8AAAAASUVORK5CYII=",
-    "base64",
-  );
-  const attach = async () =>
-    page.getByLabel(/รูปบิล/).setInputFiles({
-      name: "receipt.png",
-      mimeType: "image/png",
-      buffer: png,
-    });
+  await expect(page.getByLabel("ผู้รับซื้อ")).not.toBeVisible();
+  const receipt = await receiptFixture(page);
+  const attach = () =>
+    page.getByLabel("เลือกรูปบิล", { exact: true }).setInputFiles(receipt);
+  const started = Date.now();
   await attach();
-  await page.getByLabel("ยืนยันว่าได้รับเงินเต็มจำนวนแล้ว").check();
-  await page.getByRole("button", { name: "บันทึกการขาย" }).click();
+  await expect(page.getByLabel("น้ำหนักสุทธิ (กก.)")).toBeVisible({
+    timeout: 50000,
+  });
+  await expect(page.getByLabel("น้ำหนักสุทธิ (กก.)")).toHaveValue("3500.000");
+  await expect(page.getByLabel("ราคาต่อกิโลกรัม (บาท)")).toHaveValue("5.00");
+  await expect(page.getByLabel("เลขบิล")).toHaveValue("BROWSER-001");
+  await expect(page.getByLabel("ยอดหัก (บาท)")).toHaveValue("500.00");
+  await page.screenshot({
+    path: "test-results/receipt-review-mobile.png",
+    fullPage: true,
+  });
+  await page
+    .getByRole("button", { name: "ข้อมูลถูกต้อง · เลือกค่าแรง" })
+    .click();
+  await page.getByRole("radio", { name: "รายน้ำหนัก", exact: true }).check();
+  await expect(page.getByLabel("น้ำหนักคิดค่าแรง (กก.)")).toHaveValue(
+    "3500.000",
+  );
+  await page.getByLabel("ชื่อทีม").fill("ทีมตัดทดสอบ");
+  await page.getByLabel("บาทต่อตัน").fill("1000");
+  await expect(page.locator(".summary-net")).toContainText("13,500.00");
+  await page.getByLabel("ตรวจข้อมูลแล้ว และได้รับเงินขายเต็มจำนวน").check();
+  await page.getByRole("button", { name: "ยืนยันและบันทึก" }).click();
   await expect(page.getByText("บันทึกบิลขายแล้ว")).toBeVisible();
+  const elapsed = Date.now() - started;
+  console.log(
+    `Receipt upload → real Thai OCR → review → weight labor → saved: ${elapsed}ms`,
+  );
+  expect(externalRequests).toEqual([]);
+  expect(elapsed).toBeLessThan(60000);
   await expect(page.locator(".sale-row")).toHaveCount(1);
+  await expect(page.locator(".sale-row")).not.toContainText("Invalid Date");
+  await expect(page.locator(".sale-row")).toContainText("21/10/2569");
   await expect(page.locator(".sale-row b")).toHaveText("17,000.00บาท");
+  await expect(page.locator(".labor-history")).toContainText(
+    "3,500.00 บาท · ค้างจ่าย",
+  );
   const receiptTab = page.waitForEvent("popup");
   await page.getByRole("button", { name: "เปิดรูปต้นฉบับ" }).click();
   const receiptPage = await receiptTab;
@@ -78,25 +111,29 @@ test("owner signs in, adds and edits gardens, preserves balances across devices,
     /storage\/v1\/object\/sign\/palm-receipts/,
   );
   await expect(receiptPage.locator("img")).toBeVisible();
-  await page.getByLabel("ผู้รับซื้อ").fill("ลานปาล์ม");
-  await page.getByLabel("เลขบิล").fill("BROWSER-001");
-  await page.getByLabel("น้ำหนักสุทธิ (กก.)").fill("3500");
-  await page.getByLabel("ราคาต่อกิโลกรัม (บาท)").fill("5");
-  await page.getByLabel("คำอธิบาย").fill("ค่าขนส่ง");
-  await page.getByLabel("ยอดหัก (บาท)").fill("500");
+  await receiptPage.close();
   await attach();
-  await page.getByLabel("ยืนยันว่าได้รับเงินเต็มจำนวนแล้ว").check();
+  await expect(page.getByLabel("เลขบิล")).toBeVisible({ timeout: 50000 });
+  await page
+    .getByRole("button", { name: "ข้อมูลถูกต้อง · เลือกค่าแรง" })
+    .click();
+  await page.getByRole("radio", { name: "ไม่มีค่าแรง", exact: true }).check();
+  await page.getByLabel("ตรวจข้อมูลแล้ว และได้รับเงินขายเต็มจำนวน").check();
   page.once("dialog", (dialog) => dialog.dismiss());
-  await page.getByRole("button", { name: "บันทึกการขาย" }).click();
-  await expect(page.locator(".sale-form [role=alert]")).toContainText(
+  await page.getByRole("button", { name: "ยืนยันและบันทึก" }).click();
+  await expect(page.locator(".receipt-workflow [role=alert]")).toContainText(
     "โปรดตรวจบิลที่อาจซ้ำ",
   );
-  await expect(page.getByLabel("ผู้รับซื้อ")).toHaveValue("ลานปาล์ม");
+  await page.getByRole("button", { name: "กลับไปแก้ข้อมูลบิล" }).click();
+  await expect(page.getByLabel("เลขบิล")).toHaveValue("BROWSER-001");
+  await page
+    .getByRole("button", { name: "ข้อมูลถูกต้อง · เลือกค่าแรง" })
+    .click();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "บันทึกการขาย" }).click();
+  await page.getByRole("button", { name: "ยืนยันและบันทึก" }).click();
   await expect(page.locator(".sale-row")).toHaveCount(2);
   await page.getByRole("link", { name: "ภาพรวม", exact: true }).click();
-  await expect(page.locator(".total")).toHaveText("76,800.50");
+  await expect(page.locator(".total")).toHaveText("73,300.50");
   await page
     .getByRole("link")
     .filter({ has: page.getByText("สวนบ้านใหม่", { exact: true }) })
@@ -107,7 +144,7 @@ test("owner signs in, adds and edits gardens, preserves balances across devices,
     page.getByRole("button", { name: "นำสวนกลับมาใช้งาน" }),
   ).toBeVisible();
   await page.getByRole("link", { name: "ภาพรวม", exact: true }).click();
-  await expect(page.locator(".total")).toHaveText("76,800.50");
+  await expect(page.locator(".total")).toHaveText("73,300.50");
   const second = await browser.newContext({
     viewport: { width: 390, height: 844 },
   });
@@ -116,7 +153,7 @@ test("owner signs in, adds and edits gardens, preserves balances across devices,
   await other.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
   await other.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
   await other.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
-  await expect(other.locator(".total")).toHaveText("76,800.50");
+  await expect(other.locator(".total")).toHaveText("73,300.50");
   await second.close();
   expect(
     await page.evaluate(
@@ -152,6 +189,98 @@ test("owner signs in, adds and edits gardens, preserves balances across devices,
     }),
   ).toBeVisible();
   expect(errors).toEqual([]);
+});
+test("HEIC preview, manual fallback and daily wages retain values after a failed save and remember rates across reloads", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  await page.goto("/login");
+  await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+  await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await page.getByRole("link", { name: /รายการ/ }).click();
+  const gardenResponse = await page.request.get("/api/v1/gardens");
+  if (
+    !(await gardenResponse.json()).gardens.some(
+      (g: { archived: boolean }) => !g.archived,
+    )
+  ) {
+    await page.request.post("/api/v1/gardens", {
+      headers: {
+        Origin: "http://127.0.0.1:3100",
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      data: { name: "สวนทดสอบ HEIC", openingMinor: 0 },
+    });
+    await page.reload();
+  }
+  await expect(page.getByLabel("เลือกรูปบิล", { exact: true })).toBeVisible();
+  const existingSales = await page.locator(".sale-row").count();
+  const heic = {
+    name: "iphone-format.heic",
+    mimeType: "image/heic",
+    buffer: readFileSync("tests/fixtures/sample.heic"),
+  };
+  const attach = async (failUpload = false) => {
+    if (failUpload)
+      await page.route("**/api/v1/receipts/verify", (route) => route.abort());
+    await page.getByLabel("เลือกรูปบิล", { exact: true }).setInputFiles(heic);
+    await page.getByRole("button", { name: "ข้ามการอ่านและกรอกเอง" }).click();
+    if (failUpload) {
+      await expect(page.locator(".receipt-workflow [role=alert]")).toBeVisible({
+        timeout: 30000,
+      });
+      await page.unroute("**/api/v1/receipts/verify");
+      await page.getByRole("button", { name: "ลองอัปโหลดอีกครั้ง" }).click();
+    }
+    await expect(page.getByLabel("เลขบิล")).toBeVisible({ timeout: 30000 });
+    await expect(page.locator(".receipt-preview img")).toBeVisible();
+    expect(
+      await page
+        .locator(".receipt-preview img")
+        .evaluate((img: HTMLImageElement) => img.naturalWidth),
+    ).toBeGreaterThan(0);
+    await page.getByLabel("ผู้รับซื้อ").fill("ทดสอบรายวัน");
+    await page.getByLabel("เลขบิล").fill("BROWSER-DAILY");
+    await page.getByLabel("น้ำหนักสุทธิ (กก.)").fill("3500");
+    await page.getByLabel("ราคาต่อกิโลกรัม (บาท)").fill("5");
+    await page
+      .getByRole("button", { name: "ข้อมูลถูกต้อง · เลือกค่าแรง" })
+      .click();
+    await page.getByRole("radio", { name: "รายวัน", exact: true }).check();
+  };
+  await attach(true);
+  await page.getByLabel("ชื่อคนงาน 1").fill("สมชายทดสอบ");
+  await page.getByLabel("จำนวนวัน 1").fill("0.5");
+  await page.getByLabel("บาทต่อวัน 1").fill("400");
+  await expect(page.locator(".summary-net")).toContainText("17,300.00");
+  await page.getByLabel("ตรวจข้อมูลแล้ว และได้รับเงินขายเต็มจำนวน").check();
+  await page.route("**/api/v1/sales", (route) =>
+    route.request().method() === "POST" ? route.abort() : route.continue(),
+  );
+  await page.getByRole("button", { name: "ยืนยันและบันทึก" }).click();
+  await expect(page.locator(".receipt-workflow [role=alert]")).toBeVisible();
+  await expect(page.getByLabel("ชื่อคนงาน 1")).toHaveValue("สมชายทดสอบ");
+  await expect(page.getByLabel("จำนวนวัน 1")).toHaveValue("0.5");
+  await page.unroute("**/api/v1/sales");
+  await page.getByRole("button", { name: "ยืนยันและบันทึก" }).click();
+  await expect(page.getByText("บันทึกบิลขายแล้ว")).toBeVisible();
+  await expect(page.locator(".sale-row")).toHaveCount(existingSales + 1);
+  await page.reload();
+  await attach();
+  await expect(page.getByLabel("ชื่อคนงาน 1")).toHaveValue("สมชายทดสอบ");
+  await expect(page.getByLabel("บาทต่อวัน 1")).toHaveValue("400.00");
+  await expect(page.getByLabel("จำนวนวัน 1")).toHaveValue("1");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/labor-daily-mobile.png",
+    fullPage: true,
+  });
 });
 test("failed saves keep form input, and administrator reset forces a new login", async ({
   page,

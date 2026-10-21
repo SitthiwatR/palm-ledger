@@ -9,28 +9,18 @@ import {
 } from "react";
 import icons from "../../assets/icons.json";
 import { PalmLandscape } from "./palm-landscape";
+import { SaleForm } from "./sale-form";
+import { api, message, RequestError } from "./api";
 
 type Garden = {
   id: string;
   name: string;
   openingMinor: number;
   netMinor: number;
+  laborPendingMinor: number;
   archived: boolean;
   version: number;
 };
-type Failure = {
-  code: string;
-  message: string;
-  fields?: Record<string, string>;
-};
-class RequestError extends Error {
-  constructor(
-    public info: Failure,
-    public status: number,
-  ) {
-    super(info.message);
-  }
-}
 type Sale = {
   id: string;
   gardenId: string;
@@ -42,6 +32,14 @@ type Sale = {
   priceBahtPerKg: string;
   netMinor: number;
   deductions: { description: string; amountMinor: number }[];
+  labor: {
+    id: string;
+    mode: "daily" | "weight";
+    payee: string;
+    quantity: string;
+    rateBaht: string;
+    amountMinor: number;
+  }[];
   receipt: {
     id: string;
     mimeType: string;
@@ -49,30 +47,6 @@ type Sale = {
     sha256: string;
   } | null;
 };
-async function api(path: string, method = "GET", data?: unknown, key?: string) {
-  const response = await fetch("/api/v1/" + path, {
-    method,
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: {
-      ...(data ? { "Content-Type": "application/json" } : {}),
-      ...(key ? { "Idempotency-Key": key } : {}),
-    },
-    body: data ? JSON.stringify(data) : undefined,
-  });
-  const result = await response.json();
-  if (!response.ok) {
-    if (response.status === 401 && window.location.pathname !== "/login")
-      window.location.replace("/login");
-    throw new RequestError(result.error, response.status);
-  }
-  return result;
-}
-function message(error: unknown) {
-  return error instanceof RequestError
-    ? error.message
-    : "เชื่อมต่อไม่สำเร็จ กรุณาลองใหม่ ข้อมูลที่กรอกยังอยู่";
-}
 function Icon({ name }: { name: keyof typeof icons }) {
   return (
     <span
@@ -114,322 +88,6 @@ const baht = (minor: number) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(minor / 100);
-
-function SaleForm({
-  gardens,
-  onSaved,
-}: {
-  gardens: Garden[];
-  onSaved: () => Promise<void>;
-}) {
-  const [gardenId, setGardenId] = useState(
-      gardens.find((g) => !g.archived)?.id ?? "",
-    ),
-    [saleDate, setSaleDate] = useState(() => {
-      const local = new Date(
-        Date.now() - new Date().getTimezoneOffset() * 60000,
-      );
-      return local.toISOString().slice(0, 10);
-    }),
-    [buyer, setBuyer] = useState(""),
-    [invoiceNumber, setInvoiceNumber] = useState(""),
-    [weightKg, setWeightKg] = useState(""),
-    [price, setPrice] = useState(""),
-    [receivedFull, setReceivedFull] = useState(false),
-    [deductions, setDeductions] = useState([
-      { description: "", amountBaht: "" },
-    ]),
-    [file, setFile] = useState<File | null>(null),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState(""),
-    [notice, setNotice] = useState("");
-  const lock = useRef(false),
-    keys = useRef({ upload: "", sale: "", fileId: "", saleBody: "" });
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (lock.current || !file) return;
-    if (!keys.current.sale) keys.current.sale = crypto.randomUUID();
-    lock.current = true;
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      if (!keys.current.fileId) {
-        if (file.size > 10 * 1024 * 1024)
-          throw new Error("รูปบิลต้องมีขนาดไม่เกิน 10 MB");
-        const mimeType = file.type.toLowerCase();
-        if (
-          ![
-            "image/jpeg",
-            "image/png",
-            "image/webp",
-            "image/heic",
-            "image/heif",
-          ].includes(mimeType)
-        )
-          throw new Error("รองรับรูป JPEG, PNG, WebP, HEIC และ HEIF");
-        if (!keys.current.upload) keys.current.upload = crypto.randomUUID();
-        const prepared = await api(
-          "receipts/upload-url",
-          "POST",
-          { mimeType, sizeBytes: file.size },
-          keys.current.upload,
-        );
-        keys.current.fileId = prepared.id;
-        const { createClient } = await import("@supabase/supabase-js");
-        const storage = createClient(prepared.supabaseUrl, prepared.anonKey, {
-          auth: { persistSession: false, autoRefreshToken: false },
-        });
-        const uploaded = await storage.storage
-          .from(prepared.bucket)
-          .uploadToSignedUrl(prepared.path, prepared.token, file, {
-            contentType: mimeType,
-            upsert: false,
-          });
-        if (uploaded.error)
-          throw new Error("อัปโหลดรูปไม่สำเร็จ กรุณาลองบันทึกอีกครั้ง");
-      }
-      const payload = {
-        gardenId,
-        saleDate,
-        buyer,
-        invoiceNumber,
-        weightKg,
-        priceBahtPerKg: price,
-        deductions: deductions
-          .filter((item) => item.description.trim() || item.amountBaht)
-          .map((item) => ({
-            description: item.description,
-            amountBaht: item.amountBaht,
-          })),
-        pendingReceiptId: keys.current.fileId,
-        receivedFull,
-        confirmDuplicate: false,
-      };
-      const saleBody = JSON.stringify(payload);
-      if (keys.current.saleBody && keys.current.saleBody !== saleBody)
-        keys.current.sale = crypto.randomUUID();
-      keys.current.saleBody = saleBody;
-      try {
-        await api("sales", "POST", payload, keys.current.sale);
-      } catch (problem) {
-        if (
-          !(problem instanceof RequestError) ||
-          problem.info.code !== "DUPLICATE_BILL"
-        )
-          throw problem;
-        if (
-          !window.confirm(
-            "พบเลขบิลที่อาจซ้ำ กรุณาตรวจวันที่ ผู้รับซื้อ และยอด หากยืนยันว่าเป็นคนละบิลให้กดตกลง",
-          )
-        ) {
-          setError("โปรดตรวจบิลที่อาจซ้ำก่อนบันทึก");
-          return;
-        }
-        await api(
-          "sales",
-          "POST",
-          { ...payload, confirmDuplicate: true },
-          keys.current.sale,
-        );
-      }
-      setNotice("บันทึกบิลขายแล้ว");
-      keys.current = { upload: "", sale: "", fileId: "", saleBody: "" };
-      setBuyer("");
-      setInvoiceNumber("");
-      setWeightKg("");
-      setPrice("");
-      setReceivedFull(false);
-      setDeductions([{ description: "", amountBaht: "" }]);
-      setFile(null);
-      await onSaved();
-    } catch (problem) {
-      setError(message(problem));
-    } finally {
-      lock.current = false;
-      setBusy(false);
-    }
-  }
-  return (
-    <section className="sale-card">
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">NEW SALE</span>
-          <h2>บันทึกบิลขาย</h2>
-        </div>
-      </div>
-      <form className="sale-form" onSubmit={submit} aria-busy={busy}>
-        <label>
-          สวน
-          <select
-            required
-            value={gardenId}
-            onChange={(e) => setGardenId(e.target.value)}
-          >
-            {gardens
-              .filter((g) => !g.archived)
-              .map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-          </select>
-        </label>
-        <label>
-          วันที่ขาย
-          <input
-            type="date"
-            required
-            value={saleDate}
-            onChange={(e) => setSaleDate(e.target.value)}
-          />
-        </label>
-        <label>
-          ผู้รับซื้อ
-          <input
-            required
-            maxLength={120}
-            value={buyer}
-            onChange={(e) => setBuyer(e.target.value)}
-          />
-        </label>
-        <label>
-          เลขบิล
-          <input
-            required
-            maxLength={80}
-            value={invoiceNumber}
-            onChange={(e) => setInvoiceNumber(e.target.value)}
-          />
-        </label>
-        <label>
-          น้ำหนักสุทธิ (กก.)
-          <input
-            required
-            inputMode="decimal"
-            pattern="[0-9]+(\.[0-9]{1,3})?"
-            value={weightKg}
-            onChange={(e) => setWeightKg(e.target.value)}
-          />
-        </label>
-        <label>
-          ราคาต่อกิโลกรัม (บาท)
-          <input
-            required
-            inputMode="decimal"
-            pattern="[0-9]+(\.[0-9]{1,2})?"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-          />
-        </label>
-        <div className="deduction-fields">
-          <div className="section-heading">
-            <h3>รายการหัก</h3>
-            <button
-              type="button"
-              className="text-button"
-              onClick={() =>
-                setDeductions((list) => [
-                  ...list,
-                  { description: "", amountBaht: "" },
-                ])
-              }
-            >
-              + เพิ่มรายการหัก
-            </button>
-          </div>
-          {deductions.map((item, index) => (
-            <div className="deduction-row" key={index}>
-              <label>
-                คำอธิบาย
-                <input
-                  maxLength={120}
-                  value={item.description}
-                  onChange={(e) =>
-                    setDeductions((list) =>
-                      list.map((v, i) =>
-                        i === index ? { ...v, description: e.target.value } : v,
-                      ),
-                    )
-                  }
-                />
-              </label>
-              <label>
-                ยอดหัก (บาท)
-                <input
-                  inputMode="decimal"
-                  pattern="[0-9]+(\.[0-9]{1,2})?"
-                  value={item.amountBaht}
-                  onChange={(e) =>
-                    setDeductions((list) =>
-                      list.map((v, i) =>
-                        i === index ? { ...v, amountBaht: e.target.value } : v,
-                      ),
-                    )
-                  }
-                />
-              </label>
-              {deductions.length > 1 && (
-                <button
-                  type="button"
-                  className="text-button"
-                  aria-label="ลบรายการหัก"
-                  onClick={() =>
-                    setDeductions((list) => list.filter((_, i) => i !== index))
-                  }
-                >
-                  ลบ
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-        <label className="receipt-picker">
-          รูปบิล (JPEG, PNG, WebP, HEIC/HEIF · ไม่เกิน 10 MB)
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-            required
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null);
-              keys.current = { upload: "", sale: "", fileId: "", saleBody: "" };
-            }}
-          />
-          {file && (
-            <small>
-              {file.name} · {(file.size / 1024 / 1024).toFixed(2)} MB
-            </small>
-          )}
-        </label>
-        <label className="received-check">
-          <input
-            type="checkbox"
-            required
-            checked={receivedFull}
-            onChange={(e) => setReceivedFull(e.target.checked)}
-          />
-          ยืนยันว่าได้รับเงินเต็มจำนวนแล้ว
-        </label>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-        {notice && (
-          <p className="save-notice" role="status">
-            {notice}
-          </p>
-        )}
-        <p className="muted hint">
-          บันทึกได้เมื่อได้รับเงินเต็มจำนวน รูปต้นฉบับจะอยู่ในพื้นที่ส่วนตัว
-        </p>
-        <button className="primary" disabled={busy || !gardenId || !file}>
-          {busy ? "กำลังอัปโหลดและบันทึก…" : "บันทึกการขาย"}
-        </button>
-      </form>
-    </section>
-  );
-}
 
 export function Login({ support }: { support: string }) {
   const [username, setUsername] = useState(""),
@@ -909,7 +567,9 @@ export function Ledger({
             <h1>
               {view === "garden"
                 ? (selected?.name ?? "รายละเอียดสวน")
-                : "สวนของฉัน"}
+                : view === "records"
+                  ? "บันทึกและรายการ"
+                  : "สวนของฉัน"}
             </h1>
           </header>
         )}
@@ -946,7 +606,10 @@ export function Ledger({
               <section className="hero detail-hero">
                 <h2>ยอดสุทธิของสวน</h2>
                 <div className="total">{baht(selected.netMinor)}</div>
-                <p>บาท · ยอดสุทธิยกมา + รายรับขาย</p>
+                <p>บาท · ยอดยกมา + รายรับขาย − ค่าแรง</p>
+                {selected.laborPendingMinor > 0 && (
+                  <p>ค่าแรงค้างจ่าย {baht(selected.laborPendingMinor)} บาท</p>
+                )}
               </section>
               <div className="actions">
                 <button className="secondary" onClick={() => open(selected)}>
@@ -1007,6 +670,18 @@ export function Ledger({
                             .join(" · ")}
                         </small>
                       )}
+                      {sale.labor.map((item) => (
+                        <small key={item.id} className="labor-history">
+                          ค่าแรง
+                          {item.mode === "daily"
+                            ? "รายวัน"
+                            : "รายน้ำหนัก"} · {item.payee} · {item.quantity}{" "}
+                          {item.mode === "daily" ? "วัน" : "กก."} ×{" "}
+                          {item.rateBaht} บาท/
+                          {item.mode === "daily" ? "วัน" : "ตัน"} ={" "}
+                          {baht(item.amountMinor)} บาท · ค้างจ่าย
+                        </small>
+                      ))}
                     </div>
                     <b>
                       {baht(sale.netMinor)}
@@ -1053,7 +728,19 @@ export function Ledger({
                   </span>
                   <h2>ยอดสุทธิรวมทุกสวน</h2>
                   <div className="total">{baht(total)}</div>
-                  <p>บาท · ยอดยกมา + รายรับขาย</p>
+                  <p>บาท · ยอดยกมา + รายรับขาย − ค่าแรง</p>
+                  {gardens.some((g) => g.laborPendingMinor > 0) && (
+                    <p>
+                      ค่าแรงค้างจ่าย{" "}
+                      {baht(
+                        gardens.reduce(
+                          (sum, g) => sum + g.laborPendingMinor,
+                          0,
+                        ),
+                      )}{" "}
+                      บาท
+                    </p>
+                  )}
                   <span className="hero-detail">
                     รวมสวนที่เก็บเป็นประวัติแล้ว
                   </span>

@@ -1591,6 +1591,315 @@ svg {
 }
 
 /* Keep supporting information readable for the people using the ledger daily. */
+.sale-steps {
+  display: flex;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sale-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+.sale-steps li span {
+  display: grid;
+  place-items: center;
+  min-width: 25px;
+  height: 25px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+.sale-steps [aria-current="step"] {
+  color: var(--green);
+  font-weight: 600;
+}
+.sale-steps [aria-current="step"] span {
+  background: #e7eddb;
+  border-color: #91a27d;
+}
+.receipt-start {
+  text-align: center;
+  border: 1px dashed #b3bea6;
+  border-radius: 18px;
+  background: #f7f9f0;
+  padding: 30px 20px;
+}
+.receipt-start-icon {
+  font-size: 38px;
+  line-height: 1.4;
+  color: #54753d;
+}
+.receipt-start h3 {
+  font-size: 20px;
+  margin: 6px 0;
+}
+.receipt-start p {
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+.receipt-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.file-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  cursor: pointer;
+  position: relative;
+}
+.file-action:focus-within {
+  outline: 3px solid #6f8954;
+  outline-offset: 3px;
+}
+.file-action.disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.ocr-progress {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  margin: 20px 0 8px;
+  font-size: 14px;
+}
+.ocr-progress small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.loading-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #91a27d;
+}
+.receipt-workflow .sale-form {
+  display: block;
+}
+.workflow-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: grid;
+  gap: 18px;
+}
+.review-intro {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.review-intro p {
+  font-size: 13px;
+  margin-top: 5px;
+  color: var(--muted);
+}
+.review-intro h3 {
+  font-size: 17px;
+}
+.review-intro button {
+  flex-shrink: 0;
+}
+.receipt-preview {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+  background: #f3f3e9;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 13px;
+}
+.receipt-preview img {
+  max-width: 50%;
+  height: 150px;
+  object-fit: contain;
+  object-position: left;
+  background: white;
+}
+.sale-field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.sale-field-grid label,
+.labor-entry label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+}
+.sale-field-grid input,
+.sale-field-grid select,
+.labor-entry input {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  font-size: 16px;
+}
+.review-caution {
+  color: #795014;
+  font-size: 12px;
+}
+.review-caution::before {
+  content: "• ";
+}
+.sale-calculation {
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+  background: #eff3e7;
+  border-radius: 12px;
+}
+.sale-calculation strong {
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+.sale-calculation small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.ocr-text {
+  font-size: 12px;
+  color: var(--muted);
+}
+.ocr-text pre {
+  font-family: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  background: #f5f4ee;
+  max-height: 220px;
+  overflow: auto;
+}
+.labor-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.labor-options label {
+  display: flex;
+  flex: 1;
+  gap: 7px;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.labor-options .selected {
+  border-color: #65854d;
+  background: #edf3e4;
+  color: #365725;
+}
+.labor-options input {
+  width: 17px;
+  height: 17px;
+  min-height: 0;
+  accent-color: #54753d;
+}
+.labor-entries {
+  display: grid;
+  gap: 12px;
+}
+.labor-entry {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 10px;
+  background: #f7f8f1;
+  border-radius: 12px;
+  padding: 14px;
+}
+.labor-entry datalist {
+  display: none;
+}
+.labor-entry button {
+  grid-column: 1/-1;
+  justify-self: end;
+}
+.labor-entries > p {
+  font-size: 12px;
+}
+.sale-final-summary {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.sale-final-summary > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding: 8px 0;
+}
+.sale-final-summary strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sale-final-summary .summary-net {
+  border-top: 1px solid var(--line);
+  font-size: 16px;
+  margin-top: 8px;
+  padding-top: 14px;
+}
+.labor-history {
+  padding-top: 5px;
+  color: #795014;
+}
+.receipt-workflow > .error,
+.receipt-workflow > .save-notice {
+  margin-top: 16px;
+}
+@media (max-width: 600px) {
+  .sale-steps {
+    gap: 6px;
+    font-size: 11px;
+  }
+  .sale-steps li {
+    gap: 4px;
+  }
+  .receipt-start {
+    padding: 22px 12px;
+  }
+  .receipt-actions .file-action {
+    flex: 1;
+    padding-inline: 10px;
+  }
+  .sale-field-grid {
+    gap: 12px 10px;
+  }
+  .review-intro {
+    flex-wrap: wrap;
+  }
+  .labor-entry {
+    grid-template-columns: 1fr 1fr;
+  }
+  .labor-entry label:first-child {
+    grid-column: 1/-1;
+  }
+  .labor-options label {
+    font-size: 13px;
+  }
+  .receipt-preview img {
+    height: 120px;
+  }
+}
 .small-sun svg {
   width: 23px;
   height: 23px;

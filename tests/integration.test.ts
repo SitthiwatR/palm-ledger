@@ -39,6 +39,37 @@ async function request(
   });
   return { response, data: await response.json() };
 }
+const png = Uint8Array.from(
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/nV8AAAAASUVORK5CYII=",
+    "base64",
+  ),
+);
+async function uploadReceipt() {
+  const key = randomUUID();
+  const prepared = await request(
+    "receipts/upload-url",
+    "POST",
+    { mimeType: "image/png", sizeBytes: png.length },
+    { "Idempotency-Key": key },
+  );
+  assert.equal(prepared.response.status, 201);
+  const storage = createClient(
+    prepared.data.supabaseUrl,
+    prepared.data.anonKey,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+  const uploaded = await storage.storage
+    .from(prepared.data.bucket)
+    .uploadToSignedUrl(
+      prepared.data.path,
+      prepared.data.token,
+      new Blob([png], { type: "image/png" }),
+      { contentType: "image/png", upsert: false },
+    );
+  assert.equal(uploaded.error, null);
+  return prepared.data.id;
+}
 before(async () => {
   ownerId = await prepare();
   app = await startApp();
@@ -113,6 +144,7 @@ test("creates two gardens, persists opening balances, and rejects duplicate retr
   assert.deepEqual((await request("summary")).data, {
     netMinor: 4280000,
     gardenCount: 2,
+    laborPendingMinor: 0,
   });
   const audit = await pool().query(
     "select count(*)::int as n from public.audit_events where action='garden.created'",
@@ -125,7 +157,7 @@ test("validation failures and duplicate names leave data unchanged", async () =>
       await request(
         "gardens",
         "POST",
-        { name: "x".repeat(9000), openingMinor: 0 },
+        { name: "x".repeat(33000), openingMinor: 0 },
         { "Idempotency-Key": randomUUID() },
       )
     ).response.status,
@@ -167,37 +199,6 @@ test("validation failures and duplicate names leave data unchanged", async () =>
   assert.equal((await request("gardens")).data.gardens.length, 2);
 });
 test("sales use server cents math, private Storage receipts, duplicate confirmation, and idempotent retries", async () => {
-  const png = Uint8Array.from(
-    Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/nV8AAAAASUVORK5CYII=",
-      "base64",
-    ),
-  );
-  async function uploadReceipt() {
-    const key = randomUUID();
-    const prepared = await request(
-      "receipts/upload-url",
-      "POST",
-      { mimeType: "image/png", sizeBytes: png.length },
-      { "Idempotency-Key": key },
-    );
-    assert.equal(prepared.response.status, 201);
-    const storage = createClient(
-      prepared.data.supabaseUrl,
-      prepared.data.anonKey,
-      { auth: { persistSession: false, autoRefreshToken: false } },
-    );
-    const uploaded = await storage.storage
-      .from(prepared.data.bucket)
-      .uploadToSignedUrl(
-        prepared.data.path,
-        prepared.data.token,
-        new Blob([png], { type: "image/png" }),
-        { contentType: "image/png", upsert: false },
-      );
-    assert.equal(uploaded.error, null);
-    return prepared.data.id;
-  }
   const receiptId = await uploadReceipt(),
     key = randomUUID();
   const payload = {
@@ -260,6 +261,7 @@ test("sales use server cents math, private Storage receipts, duplicate confirmat
     0,
   );
   const saleList = await request("sales");
+  assert.equal(saleList.data.sales[0].saleDate, "2026-10-20");
   assert.equal(saleList.data.sales[0].netMinor, 1700000);
   assert.equal((await request("summary")).data.netMinor, 5980000);
   const duplicateReceipt = await uploadReceipt();
@@ -346,6 +348,139 @@ test("sales use server cents math, private Storage receipts, duplicate confirmat
   assert.equal(heicSource.status, 200);
   assert.equal(Buffer.from(await heicSource.arrayBuffer()).compare(heic), 0);
 });
+test("sale and daily/weight labor commit atomically, affect balances once, preserve calculation bases and remember rates", async () => {
+  const before = (await request("summary")).data.netMinor;
+  const base = {
+    gardenId,
+    saleDate: "2026-10-21",
+    buyer: "ทดสอบค่าแรง",
+    weightKg: "3500",
+    priceBahtPerKg: "5",
+    deductions: [{ description: "ค่าขนส่ง", amountBaht: "500" }],
+    receivedFull: true,
+  };
+  const weighted = {
+    ...base,
+    invoiceNumber: "LABOR-WEIGHT",
+    pendingReceiptId: await uploadReceipt(),
+    labor: [
+      { mode: "weight", payee: "ทีมตัด", quantity: "3500", rateBaht: "1000" },
+    ],
+  };
+  const key = randomUUID();
+  const saved = await request("sales", "POST", weighted, {
+    "Idempotency-Key": key,
+  });
+  assert.equal(saved.response.status, 201);
+  assert.equal(saved.data.netMinor, 1700000);
+  assert.equal(saved.data.laborMinor, 350000);
+  const retry = await request("sales", "POST", weighted, {
+    "Idempotency-Key": key,
+  });
+  assert.equal(retry.response.status, 200);
+  assert.equal(retry.data.id, saved.data.id);
+  assert.equal((await request("summary")).data.netMinor, before + 1350000);
+  assert.equal((await request("summary")).data.laborPendingMinor, 350000);
+  const details = (await request("sales")).data.sales.find(
+    (s: { id: string }) => s.id === saved.data.id,
+  );
+  assert.equal(details.labor[0].quantity, "3500");
+  assert.equal(details.labor[0].rateBaht, "1000.00");
+  const preferences = (await request("sales/preferences")).data;
+  assert.equal(preferences.gardenId, gardenId);
+  assert.equal(preferences.profiles[0].payee, "ทีมตัด");
+  assert.equal(preferences.profiles[0].rateBaht, "1000.00");
+  const daily = {
+    ...base,
+    invoiceNumber: "LABOR-DAILY",
+    pendingReceiptId: await uploadReceipt(),
+    labor: [
+      { mode: "daily", payee: "สมชาย", quantity: "0.5", rateBaht: "400" },
+      { mode: "daily", payee: "สมศรี", quantity: "1.5", rateBaht: "350" },
+    ],
+  };
+  const invalid = await request(
+    "sales",
+    "POST",
+    { ...daily, labor: [{ ...daily.labor[0], quantity: "0.25" }] },
+    { "Idempotency-Key": randomUUID() },
+  );
+  assert.equal(invalid.response.status, 422);
+  assert.equal(invalid.data.error.code, "INVALID_LABOR");
+  const paid = await request("sales", "POST", daily, {
+    "Idempotency-Key": randomUUID(),
+  });
+  assert.equal(paid.response.status, 201);
+  assert.equal(paid.data.laborMinor, 72500);
+  assert.equal((await request("summary")).data.netMinor, before + 2977500);
+  const pending = await uploadReceipt();
+  assert.equal(
+    (
+      await request(
+        "receipts/verify",
+        "POST",
+        { pendingReceiptId: pending },
+        { Cookie: "" },
+      )
+    ).response.status,
+    401,
+  );
+  const atomic = {
+    ...base,
+    invoiceNumber: "LABOR-ROLLBACK",
+    weightKg: "1",
+    priceBahtPerKg: "1",
+    deductions: [],
+    pendingReceiptId: pending,
+    labor: [
+      {
+        mode: "daily",
+        payee: "rollback-fixture",
+        quantity: "1",
+        rateBaht: "1",
+      },
+    ],
+  };
+  const atomicKey = randomUUID();
+  const snapshot = (
+    await pool().query(
+      "select (select count(*) from public.sales)::int sales,(select count(*) from public.sale_labor)::int labor,(select count(*) from public.receipt_files)::int receipts",
+    )
+  ).rows[0];
+  await pool().query(
+    "create function private.test_reject_profile() returns trigger language plpgsql set search_path='' as $$ begin if NEW.payee='rollback-fixture' then raise exception 'fixture failure'; end if; return NEW; end $$; create trigger test_reject_profile before insert on public.labor_profiles for each row execute function private.test_reject_profile()",
+  );
+  try {
+    assert.equal(
+      (await request("sales", "POST", atomic, { "Idempotency-Key": atomicKey }))
+        .response.status,
+      500,
+    );
+    assert.deepEqual(
+      (
+        await pool().query(
+          "select (select count(*) from public.sales)::int sales,(select count(*) from public.sale_labor)::int labor,(select count(*) from public.receipt_files)::int receipts",
+        )
+      ).rows[0],
+      snapshot,
+    );
+    assert.equal(
+      (await request("receipts/verify", "POST", { pendingReceiptId: pending }))
+        .response.status,
+      200,
+    );
+  } finally {
+    await pool().query(
+      "drop trigger test_reject_profile on public.labor_profiles; drop function private.test_reject_profile()",
+    );
+  }
+  const recovered = await request("sales", "POST", atomic, {
+    "Idempotency-Key": atomicKey,
+  });
+  assert.equal(recovered.response.status, 201);
+  assert.equal(recovered.data.laborMinor, 100);
+  assert.equal((await request("summary")).data.netMinor, before + 2977500);
+});
 test("concurrent edits reject stale versions; archive retains balances, rows and audit", async () => {
   const results = await Promise.all(
     ["สวนใหม่", "สวนอีกชื่อ"].map((name) =>
@@ -369,8 +504,9 @@ test("concurrent edits reject stale versions; archive retains balances, rows and
   assert.equal(edited.data.version, 3);
   assert.equal(edited.data.archived, true);
   assert.deepEqual((await request("summary")).data, {
-    netMinor: 4879600,
+    netMinor: 7857100,
     gardenCount: 2,
+    laborPendingMinor: 422600,
   });
   assert.equal((await request("gardens/" + gardenId)).data.openingMinor, -500);
   const audit = await pool().query(
@@ -423,6 +559,45 @@ test("Supabase REST RLS denies non-owners and direct writes, but allows owner re
   });
   assert.equal(denied.status, 200);
   assert.deepEqual(await denied.json(), []);
+  await pool().query("notify pgrst,'reload schema'");
+  const saleId = (await pool().query("select id from public.sales limit 1"))
+    .rows[0].id;
+  for (const table of ["sale_labor", "labor_profiles"]) {
+    const endpoint = process.env.SUPABASE_URL + "/rest/v1/" + table;
+    let read = await fetch(endpoint, { headers });
+    for (let attempt = 0; attempt < 10 && read.status === 404; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      read = await fetch(endpoint, { headers });
+    }
+    assert.equal(read.status, 200);
+    assert.ok((await read.json()).length > 0);
+    const outsider = await fetch(endpoint, {
+      headers: {
+        ...headers,
+        Authorization: "Bearer " + otherAuth.data.session!.access_token,
+      },
+    });
+    assert.equal(outsider.status, 200);
+    assert.deepEqual(await outsider.json(), []);
+    const insert = await fetch(endpoint, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        owner_id: ownerId,
+        mode: "daily",
+        payee: "forbidden direct write",
+        rate_minor: 100,
+        ...(table === "sale_labor"
+          ? { sale_id: saleId, basis_units: 2, amount_minor: 100 }
+          : {}),
+      }),
+    });
+    assert.equal(insert.status, 403);
+    const anonymous = await fetch(endpoint, {
+      headers: { apikey: process.env.SUPABASE_ANON_KEY! },
+    });
+    assert.ok(anonymous.status === 401 || anonymous.status === 403);
+  }
   const anon = await fetch(url, {
     headers: { apikey: process.env.SUPABASE_ANON_KEY! },
   });

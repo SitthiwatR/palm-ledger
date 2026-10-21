@@ -4,7 +4,9 @@
 
 ## ข้อตกลงและผลเฟสแรก
 
-**Phase 1 เสร็จและผู้ใช้รับงานแล้ว; Phase 2 implement และผ่านการตรวจใน local test stack แล้ว** โค้ด push ไป `main` ใน `bb0fad8`; เอกสารปิดงานอยู่ใน `7315442`. ตรวจ production URL หลัง push ได้ `/login` 200, `/records` 200 และ unauthenticated `/api/v1/sales` 401. อย่างไรก็ตาม ยังยืนยัน deployment state/commit และ migration log จาก Vercel ไม่ได้: Vercel API ตอบ 403 เพราะ integration ไม่มีสิทธิ์ทีม `team_PnTYWZ1rB5hOoQSGOZwv0aFW` และ CLI `vercel` ไม่มีใน environment
+**Phase 1 เสร็จและผู้ใช้รับงานแล้ว; Phase 2 deploy แล้วและผู้ใช้ยืนยันใช้งานได้** หลังผู้ใช้เพิ่มสิทธิ์ Vercel ตรวจ `main` ที่ `911322c` ได้ deployment `dpl_D4kfo1hH7eJvu8g3ayKdzzjRe8ba` เป็น READY พร้อม `Migrations applied.` และ `Owner login: configured`. ไม่ติดปัญหา 403 เดิมแล้ว
+
+**คำสั่งเพิ่มเติม 21 ตุลาคม 2569:** เปลี่ยนเป็นอัปโหลดรูป → รีวิว/แก้เฉพาะข้อมูลที่ผิด → เลือกค่าแรงรายวันหรือรายน้ำหนัก เป้าหมายจบใน 1 นาที ผู้ใช้เลือก OCR ฟรีในเบราว์เซอร์ รายละเอียดการทำงาน/ผลตรวจและ deployment รอบใหม่อยู่ใน [receipt-first-workflow.md](receipt-first-workflow.md)
 
 - Next.js รวม frontend/API, TypeScript, Node.js 24, Supabase PostgreSQL/Auth
 - บัญชีเจ้าของคนเดียว ใช้ username/password, session 30 วัน, logout และคำสั่งผู้ดูแลสร้าง/รีเซ็ตรหัส
@@ -55,7 +57,7 @@
 
 **ขอบเขตหลักฐาน:** ทดสอบ HEIC fixture จริงจากตัวอย่าง libheif ซึ่งพิสูจน์การเก็บ/อ่านไฟล์ HEIC แต่ยังไม่ได้ทดสอบภาพจาก iPhone โดยตรงหรือทดสอบ Safari บนอุปกรณ์จริง จึงคง acceptance ข้อนี้ไว้ pending ตามแผน
 
-OCR อยู่ Phase 10, รายจ่ายอยู่ Phase 3, ค่าแรงทีมผูกบิลอยู่ Phase 4, สำรองตาม Phase 8–9 อย่าเริ่มงานเหล่านี้แทน Phase 2
+คำสั่งเพิ่มเติมข้างต้นย้าย OCR ฟรีและค่าแรงรายวัน/รายน้ำหนักที่ผูกบิลมาทำก่อน ส่วนรายจ่ายทั่วไป ปุ๋ย การจ่ายหนี้ และสำรองยังคงตามเฟสเดิม ไม่ถือว่างานส่วนอื่นของ Phase 3–10 เสร็จแล้ว
 
 ## เริ่มทำงานในแชทใหม่
 
@@ -73,4 +75,4 @@ TEST_APP_MODE=production npm run test:browser
 
 คำสั่งชุดนี้สำหรับ bash ใน cloud ใช้ Node.js 24 และ Docker; อย่ารัน API/browser suites พร้อมกันเพราะใช้ test database/พอร์ตเดียวกัน และอย่า build ขณะ test dev server ใช้ `.next` อยู่ Tests โหลด `.env.test.local` และมี guard ว่าชี้เฉพาะฐานทดสอบ localhost เท่านั้น ห้ามแก้ guard ให้ชี้ production
 
-หลังผู้ใช้ให้ Vercel integration เข้าถึงทีม ให้ตรวจ deployment ที่สร้างจาก `main` จนเป็น Ready และตรวจ build/migration log ก่อนบันทึก deployment ID/status ในเอกสารนี้และ [แผน](../plans/palm-ledger.md) โดยรักษาข้อมูลและบัญชีเดิม
+เมื่อแก้ flow เพิ่มเติม ให้ตรวจ deployment ที่สร้างจาก `main` จนเป็น Ready และตรวจ build/migration log โดยรักษาข้อมูลและบัญชีเดิม บันทึกผลรอบใหม่ใน [receipt-first-workflow.md](receipt-first-workflow.md) และ [แผน](../plans/palm-ledger.md)
