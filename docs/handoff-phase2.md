@@ -2,6 +2,12 @@
 
 อัปเดต 21 ตุลาคม 2569 (Asia/Bangkok) · Repository `SitthiwatR/palm-ledger` · ใช้ `main` ล่าสุด
 
+## ปิดเฟสและเริ่มงานถัดไป
+
+ผู้ใช้ทดสอบแล้วและให้ **ปิด Phase 2** โดยระบุว่า **OCR อ่านข้อมูลได้ผลไม่ดี** ย้ายปรับวิธี extraction ไป Phase 10 พร้อมการตรวจ iPhone/Safari และเป้าหมายจบใน 1 นาที ผล automation ด้านล่างเป็นหลักฐานทางเทคนิค ไม่ใช่การรับรองคุณภาพ OCR จากผู้ใช้
+
+**เอกสารนี้เก็บประวัติ Phase 2; งานถัดไป Phase 3 ใช้ [handoff-phase3.md](handoff-phase3.md) และ [ข้อความเริ่มแชท](start-phase3.md)** ไม่กลับไปเปิดเฟส 2 หรือแก้ OCR ต่อโดยอัตโนมัติ
+
 ## ข้อตกลงและผลเฟสแรก
 
 **Phase 1 เสร็จและผู้ใช้รับงานแล้ว; Phase 2 deploy แล้วและผู้ใช้ยืนยันใช้งานได้** หลังผู้ใช้เพิ่มสิทธิ์ Vercel ตรวจ `main` ที่ `911322c` ได้ deployment `dpl_D4kfo1hH7eJvu8g3ayKdzzjRe8ba` เป็น READY พร้อม `Migrations applied.` และ `Owner login: configured`. ไม่ติดปัญหา 403 เดิมแล้ว
@@ -20,12 +26,12 @@
 
 ## อ่านก่อนลงมือ
 
-1. [แผน 10 ขั้น](../plans/palm-ledger.md) — Phase 2 และ acceptance criteria เป็นขอบเขตงานถัดไป
+1. [แผน 10 ขั้น](../plans/palm-ledger.md) — ใช้ Phase 3 เป็นขอบเขตงานถัดไป; Phase 2 ปิดแล้ว
 2. [สเปก](../app-spec.md) — user stories 10–16, 39, 43 และกติกาข้อมูล/รูป/เงิน
 3. [User flow](../user-flow.md) และ [วิธีพัฒนา/ทดสอบ](development.md)
 4. `AGENTS.md` และคู่มือ Next.js รุ่นที่ติดตั้งใน `node_modules/next/dist/docs/` ก่อนเขียนโค้ด
 
-ไม่ต้องเริ่ม grill-me หรือร่างแผนใหม่ ผู้ใช้ตกลงสถาปัตยกรรมและแผน 10 ขั้นแล้ว คง UI/Three.js ที่ผู้ใช้รับงานไว้ ปรับเพิ่มเฉพาะความสามารถที่ Phase 2 ต้องใช้
+ไม่ต้องเริ่ม grill-me หรือร่างแผนใหม่ ผู้ใช้ตกลงสถาปัตยกรรมและแผน 10 ขั้นแล้ว คง UI/Three.js ที่ผู้ใช้รับงานไว้ ปรับเพิ่มตามขอบเขต Phase 3 ใน handoff ล่าสุด
 
 ## Production และบทเรียนการตั้งค่า
 
@@ -42,7 +48,7 @@
 - Windows เคยต่อ PostgreSQL timeout บนเน็ตเดิม แต่ผ่านเมื่อเปลี่ยนเป็น hotspot ไม่ใช่หลักฐานว่า key ผิด; Node ใช้ inherited environment ก่อน `--env-file` มีตัวตรวจ `scripts/check-auth.ts`, `scripts/check-database-network.ts` และ `scripts/owner.ts check`
 - ค่าลับไม่อยู่ใน Git ไม่ต้องให้ผู้ใช้ส่งรหัสผ่าน/key ในแชต ตรวจ readiness และชนิดของ credentials โดยไม่พิมพ์ค่า เก็บ production data เดิมไว้
 
-เครื่องมือ Vercel/Supabase plugins อาจต่างกันในแชทใหม่ ให้ตรวจเครื่องมือที่มีจริง ในรอบนี้ใช้ Vercel REST ผ่าน credential/proxy ที่ตั้งไว้ตามปกติ Cloud network policy ยังไม่อนุญาตเว็บจริงและโดเมน Supabase ใหม่สำหรับตรวจโดยตรง มี draft เพิ่มโดเมนไว้แต่ยังไม่มีหลักฐานว่า publish แล้ว อย่าข้าม proxy/ปิด TLS เพื่อทดสอบ
+เครื่องมือ Vercel/Supabase plugins อาจต่างกันในแชทใหม่ ให้ตรวจเครื่องมือที่มีจริง ในรอบนี้ใช้ Vercel REST ผ่าน credential/proxy ที่ตั้งไว้ตามปกติ รอบเก่าเคยติด Cloud network policy; รอบแก้ OCR ล่าสุดตรวจ HTTP เว็บจริงและอ่านรูปเฉพาะที่ผู้ใช้แจ้งจาก private Storage ได้แล้ว ให้ตรวจ policy/readiness ใหม่ในแต่ละ session อย่าข้าม proxy/ปิด TLS เพื่อทดสอบ
 
 ## Phase 2 ที่ทำแล้ว
 
