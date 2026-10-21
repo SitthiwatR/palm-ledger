@@ -85,6 +85,7 @@ const saleRequest = z
       .array(
         z
           .object({
+            rememberRate: z.boolean().optional(),
             mode: z.enum(["daily", "weight"]),
             payee: z.string().trim().min(1).max(120),
             quantity: z.string().regex(/^\d{1,7}(?:\.\d{1,3})?$/),
@@ -488,10 +489,11 @@ async function saveSale(req: NextRequest, owner: Owner) {
           item.amountMinor,
         ],
       );
-      await db.query(
-        "insert into public.labor_profiles(owner_id,mode,payee,rate_minor) values($1,$2,$3,$4) on conflict(owner_id,mode,payee) do update set rate_minor=excluded.rate_minor,updated_at=now()",
-        [owner.id, item.mode, item.payee, item.rateMinor],
-      );
+      if (item.rememberRate !== false)
+        await db.query(
+          "insert into public.labor_profiles(owner_id,mode,payee,rate_minor) values($1,$2,$3,$4) on conflict(owner_id,mode,payee) do update set rate_minor=excluded.rate_minor,updated_at=now()",
+          [owner.id, item.mode, item.payee, item.rateMinor],
+        );
     }
     await db.query(
       "insert into public.receipt_files(owner_id,sale_id,storage_key,mime_type,size_bytes,sha256) values($1,$2,$3,$4,$5,$6)",
@@ -654,10 +656,18 @@ async function saveExpense(req: NextRequest, owner: Owner) {
         amountMinor: amounts.paidMinor,
       });
     }
-    if (input.kind === "daily_labor" && input.rememberRate)
+    if (
+      (input.kind === "daily_labor" || input.kind === "weight_labor") &&
+      input.rememberRate
+    )
       await db.query(
-        "insert into public.labor_profiles(owner_id,mode,payee,rate_minor) values($1,'daily',$2,$3) on conflict(owner_id,mode,payee) do update set rate_minor=excluded.rate_minor,updated_at=now()",
-        [owner.id, input.payee, amounts.rateMinor],
+        "insert into public.labor_profiles(owner_id,mode,payee,rate_minor) values($1,$4,$2,$3) on conflict(owner_id,mode,payee) do update set rate_minor=excluded.rate_minor,updated_at=now()",
+        [
+          owner.id,
+          input.payee,
+          amounts.rateMinor,
+          input.kind === "daily_labor" ? "daily" : "weight",
+        ],
       );
     if (receipt) {
       const p = receipt.pending;

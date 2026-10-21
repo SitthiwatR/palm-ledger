@@ -346,13 +346,21 @@ export function SaleForm({
       pendingId.current = "";
       saleKey.current = { key: "", body: "" };
       setProfiles((current) => [
-        ...labor.map(({ mode, payee, rateBaht }) => ({
-          mode,
-          payee,
-          rateBaht,
-        })),
+        ...labor
+          .filter((l) => l.rememberRate !== false)
+          .map(({ mode, payee, rateBaht }) => ({
+            mode,
+            payee,
+            rateBaht,
+          })),
         ...current.filter(
-          (p) => !labor.some((l) => l.mode === p.mode && l.payee === p.payee),
+          (p) =>
+            !labor.some(
+              (l) =>
+                l.rememberRate !== false &&
+                l.mode === p.mode &&
+                l.payee === p.payee,
+            ),
         ),
       ]);
       setLaborRows((rows) =>
@@ -818,6 +826,23 @@ export function SaleForm({
                               )
                             }
                           />
+                        </label>
+                        <label className="expense-check">
+                          <input
+                            type="checkbox"
+                            checked={row.rememberRate !== false}
+                            onChange={(e) =>
+                              setLaborRows((rows) =>
+                                rows.map((v, i) =>
+                                  i === index
+                                    ? { ...v, rememberRate: e.target.checked }
+                                    : v,
+                                ),
+                              )
+                            }
+                          />
+                          จำอัตรานี้ไว้ใช้ครั้งถัดไป
+                          (เอาออกเพื่อเปลี่ยนเฉพาะรายการ)
                         </label>
                         {laborRows.length > 1 && (
                           <button

@@ -96,14 +96,26 @@ export function ExpenseForm({
     if (error) failure.current?.focus();
   }, [error]);
   useEffect(() => {
-    if (kind !== "daily_labor" || rateEdited.current) return;
+    if (
+      (kind !== "daily_labor" && kind !== "weight_labor") ||
+      rateEdited.current
+    )
+      return;
     const profile = profiles.find(
-      (p) => p.mode === "daily" && p.payee === payee,
+      (p) =>
+        p.mode === (kind === "weight_labor" ? "weight" : "daily") &&
+        p.payee === payee,
     );
     if (profile) setRate(profile.rateBaht);
   }, [kind, payee, profiles]);
   const unit =
-    kind === "daily_labor" ? "day" : kind === "fertilizer" ? "sack" : "item";
+    kind === "daily_labor"
+      ? "day"
+      : kind === "weight_labor"
+        ? "kg"
+        : kind === "fertilizer"
+          ? "sack"
+          : "item";
   const input: ExpenseInput = {
     gardenId,
     expenseDate: date,
@@ -254,7 +266,10 @@ export function ExpenseForm({
             </label>
             <datalist id="expense-workers">
               {profiles
-                .filter((p) => p.mode === "daily")
+                .filter(
+                  (p) =>
+                    p.mode === (kind === "weight_labor" ? "weight" : "daily"),
+                )
                 .map((p) => (
                   <option key={p.payee} value={p.payee} />
                 ))}
@@ -262,9 +277,11 @@ export function ExpenseForm({
             <label>
               {kind === "daily_labor"
                 ? "จำนวนวันทำงาน"
-                : kind === "fertilizer"
-                  ? "กระสอบที่ใช้จริง"
-                  : "จำนวนรายการ"}
+                : kind === "weight_labor"
+                  ? "น้ำหนักคิดค่าแรง (กก.)"
+                  : kind === "fertilizer"
+                    ? "กระสอบที่ใช้จริง"
+                    : "จำนวนรายการ"}
               <input
                 required
                 type="number"
@@ -277,9 +294,11 @@ export function ExpenseForm({
             <label>
               {kind === "daily_labor"
                 ? "ค่าแรงต่อวัน (บาท)"
-                : kind === "fertilizer"
-                  ? "ราคาต่อกระสอบ (บาท)"
-                  : "ราคาต่อรายการ (บาท)"}
+                : kind === "weight_labor"
+                  ? "บาทต่อตัน"
+                  : kind === "fertilizer"
+                    ? "ราคาต่อกระสอบ (บาท)"
+                    : "ราคาต่อรายการ (บาท)"}
               <input
                 required
                 type="number"
@@ -293,7 +312,7 @@ export function ExpenseForm({
               />
             </label>
           </div>
-          {kind === "daily_labor" && (
+          {(kind === "daily_labor" || kind === "weight_labor") && (
             <label className="expense-check">
               <input
                 type="checkbox"
@@ -432,10 +451,19 @@ export function ExpenseList({
                 {e.quantity}{" "}
                 {e.unit === "day"
                   ? "วัน"
-                  : e.unit === "sack"
-                    ? "กระสอบ"
-                    : "รายการ"}{" "}
-                × {e.rateBaht} บาท
+                  : e.unit === "kg"
+                    ? "กก."
+                    : e.unit === "sack"
+                      ? "กระสอบ"
+                      : "รายการ"}{" "}
+                × {e.rateBaht} บาท/
+                {e.unit === "kg"
+                  ? "ตัน"
+                  : e.unit === "day"
+                    ? "วัน"
+                    : e.unit === "sack"
+                      ? "กระสอบ"
+                      : "รายการ"}
               </small>
               {e.note && <small>{e.note}</small>}
               <small>

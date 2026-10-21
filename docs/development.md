@@ -155,3 +155,14 @@ node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts
 ## ผลตรวจปัจจุบัน
 
 รอบ workflow รูปก่อน: model tests 4/4; unit/API/CLI tests 28/28 กับ PostgreSQL/Auth/PostgREST/Storage จริง; Chromium browser tests 5/5; `typecheck`, `format:check` และ production build ผ่าน Baseline Phase 2 บน `main` ที่ `911322c` ตรวจ Vercel ได้ READY พร้อม migration log หลังผู้ใช้เพิ่มสิทธิ์แล้ว รายละเอียด deployment รอบเปลี่ยน workflow อยู่ใน [receipt-first-workflow.md](receipt-first-workflow.md) ส่วน hosted sale flow และ Safari/WebKit บนอุปกรณ์จริงยังต้องตรวจแยก ผล local เหล่านี้ไม่ใช่หลักฐานว่าทดสอบบน production หรือบน iPhone แล้ว
+
+
+## ผลตรวจ Phase 4 — 21 ตุลาคม 2569
+
+ดู [handoff](handoff-phase4.md): เพิ่ม `weight_labor` แยกบิลและเลือกจำอัตราเฉพาะรายการในฟอร์มขาย โดยใช้สูตร/ตารางค่าแรงเดิม ไม่เปลี่ยน OCR หรือ UI/Three.js
+
+- Migration เพิ่มเติม `20261021123258_phase4_weight_labor.sql` รักษารายจ่าย/รูป/ค่าแรงเดิมและ RLS/สิทธิ์เดิม เปลี่ยนเฉพาะ constraints ให้รองรับ kg และบาทต่อตัน
+- `expenses.quantity_milli` คือกิโลกรัม × 1,000 สำหรับ `weight_labor`; `rate_minor` เป็นสตางค์/ตัน ปัดครึ่งขึ้นด้วยตัวหาร 1,000,000 ต่างจากวัน/กระสอบ/รายการที่ใช้ 1,000 ส่วน `sale_labor` ยังเก็บกรัม/จำนวนครึ่งวันเหมือนเดิม
+- Model 4/4; unit/API/CLI 42/42; Chromium production build 8 ผ่าน + 1 ข้าม (private OCR photo ไม่มีในรอบนี้); typecheck, format:check, build และ diff checks ผ่าน
+- ตรวจ UI → API → PostgreSQL/Auth/Storage จริงใน localhost test stack: น้ำหนักจากบิล/ฐานต่างจากบิล, อัตราร่วมและ override, รายจ่ายทีมแยกบิล/การจ่ายครั้งแรก, concurrent retry, rollback พร้อมรูป/profile/audit/idempotency และยอดสุทธิ/ค้างไม่ซ้ำ
+- ยังไม่ใช่ผล Safari/iPhone จริงหรือการรับรอง OCR; ทั้งสองเรื่องอยู่ Phase 10 การจ่ายหนี้ภายหลังยัง Phase 5

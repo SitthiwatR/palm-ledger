@@ -435,9 +435,9 @@ test("sale and daily/weight labor commit atomically, affect balances once, prese
     pendingReceiptId: pending,
     labor: [
       {
-        mode: "daily",
+        mode: "weight",
         payee: "rollback-fixture",
-        quantity: "1",
+        quantity: "1000",
         rateBaht: "1",
       },
     ],
@@ -728,10 +728,10 @@ test("expense, initial payment, profile, receipt, audit and retry roll back toge
   const input = {
     gardenId: activeId,
     expenseDate: "2026-10-21",
-    kind: "daily_labor",
+    kind: "weight_labor",
     payee: "expense-rollback",
-    unit: "day",
-    quantity: "0.5",
+    unit: "kg",
+    quantity: "3500",
     rateBaht: "500",
     paymentStatus: "full",
     paymentDate: "2026-10-21",
@@ -788,6 +788,122 @@ test("expense, initial payment, profile, receipt, audit and retry roll back toge
   assert.equal(after.receipts, before.receipts + 1);
   assert.equal(after.audit, before.audit + 2);
   assert.equal(after.retries, before.retries + 1);
+});
+test("phase four team expenses share rates, preserve kg/tonne units, and never duplicate linked labor", async () => {
+  const activeId = (await request("gardens")).data.gardens.find(
+    (g: { archived: boolean }) => !g.archived,
+  ).id;
+  const before = (await request("summary")).data;
+  const salesBefore = (
+    await pool().query("select count(*)::int n from public.sales")
+  ).rows[0].n;
+  const input = {
+    gardenId: activeId,
+    expenseDate: "2026-10-21",
+    kind: "weight_labor",
+    unit: "kg",
+    quantity: "3500",
+    rateBaht: "1000",
+    payee: "ทีมเฟสสี่",
+    paymentStatus: "partial",
+    paidBaht: "1000",
+    paymentDate: "2026-10-21",
+  };
+  const create = (data: unknown, key = randomUUID()) =>
+    request("expenses", "POST", data, { "Idempotency-Key": key });
+  const key = randomUUID();
+  const results = await Promise.all([create(input, key), create(input, key)]);
+  assert.deepEqual(results.map((r) => r.response.status).sort(), [200, 201]);
+  assert.equal(results[0].data.id, results[1].data.id);
+  assert.equal(results[0].data.amountMinor, 350000);
+  assert.equal(results[0].data.pendingMinor, 250000);
+  assert.equal(
+    (await create({ ...input, quantity: "3501" }, key)).response.status,
+    409,
+  );
+  assert.equal((await create({ ...input, unit: "day" })).response.status, 422);
+  const override = await create({
+    ...input,
+    quantity: "3250.125",
+    rateBaht: "1200",
+    rememberRate: false,
+    paymentStatus: "unpaid",
+    paidBaht: "0",
+    paymentDate: undefined,
+  });
+  assert.equal(override.response.status, 201);
+  assert.equal(override.data.amountMinor, 390015);
+  const profile = (await request("sales/preferences")).data.profiles.find(
+    (p: { payee: string }) => p.payee === input.payee,
+  );
+  assert.equal(profile.mode, "weight");
+  assert.equal(profile.rateBaht, "1000.00");
+  const after = (await request("summary")).data;
+  assert.equal(after.netMinor, before.netMinor - 740015);
+  assert.equal(after.expensePendingMinor, before.expensePendingMinor + 640015);
+  assert.equal(after.laborPendingMinor, before.laborPendingMinor);
+  assert.equal(
+    (await pool().query("select count(*)::int n from public.sales")).rows[0].n,
+    salesBefore,
+  );
+  const row = (await request("expenses")).data.expenses.find(
+    (e: { id: string }) => e.id === override.data.id,
+  );
+  assert.equal(row.quantity, "3250.125");
+  assert.equal(row.unit, "kg");
+  assert.equal(row.rateBaht, "1200.00");
+  await assert.rejects(
+    pool().query(
+      "update public.expenses set amount_minor=amount_minor*1000 where id=$1",
+      [row.id],
+    ),
+    /check constraint/,
+  );
+  const pendingReceiptId = await uploadReceipt();
+  const sale = {
+    gardenId: activeId,
+    saleDate: "2026-10-21",
+    buyer: "phase4",
+    invoiceNumber: "PHASE4-OVERRIDE",
+    weightKg: "3500",
+    priceBahtPerKg: "5",
+    deductions: [],
+    receivedFull: true,
+    pendingReceiptId,
+    labor: [
+      {
+        mode: "weight",
+        payee: input.payee,
+        quantity: "3250",
+        rateBaht: "1200",
+        rememberRate: false,
+      },
+    ],
+  };
+  const saleKey = randomUUID();
+  const saved = await Promise.all([
+    request("sales", "POST", sale, { "Idempotency-Key": saleKey }),
+    request("sales", "POST", sale, { "Idempotency-Key": saleKey }),
+  ]);
+  assert.deepEqual(saved.map((r) => r.response.status).sort(), [200, 201]);
+  assert.equal(saved[0].data.id, saved[1].data.id);
+  assert.equal(saved[0].data.laborMinor, 390000);
+  assert.equal(
+    (await request("sales/preferences")).data.profiles.find(
+      (p: { payee: string }) => p.payee === input.payee,
+    ).rateBaht,
+    "1000.00",
+  );
+  const detail = (await request("sales")).data.sales.find(
+    (v: { id: string }) => v.id === saved[0].data.id,
+  );
+  assert.equal(detail.weightKg, "3500");
+  assert.equal(detail.labor[0].quantity, "3250");
+  assert.equal(detail.labor[0].amountMinor, 390000);
+  const final = (await request("summary")).data;
+  assert.equal(final.netMinor, after.netMinor + 1360000);
+  assert.equal(final.laborPendingMinor, after.laborPendingMinor + 390000);
+  assert.equal(final.expensePendingMinor, after.expensePendingMinor);
 });
 test("Supabase REST RLS denies non-owners and direct writes, but allows owner reads", async () => {
   const owner = await supabase(true).auth.admin.getUserById(ownerId);

@@ -545,6 +545,89 @@ test("Phase 3 expenses preserve failed input, reuse daily rates, attach private 
   });
   expect(errors).toEqual([]);
 });
+test("Phase 4 team weight expense and linked sale reuse rates with per-record overrides", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/login");
+  await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+  await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  const before = await (await page.request.get("/api/v1/summary")).json();
+  await page.goto("/records");
+  await page.getByRole("button", { name: "เพิ่มรายจ่าย", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("ชนิดรายจ่าย").selectOption("weight_labor");
+  await dialog.getByLabel("ผู้รับเงิน", { exact: true }).fill("ทีมทดสอบเฟสสี่");
+  await dialog.getByLabel("น้ำหนักคิดค่าแรง (กก.)").fill("3500");
+  await dialog.getByLabel("บาทต่อตัน").fill("1000");
+  await expect(dialog.locator(".sale-calculation")).toContainText("3,500.00");
+  await dialog
+    .getByRole("button", { name: "ยืนยันรายจ่าย", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  await page.reload();
+  await expect(
+    page.locator(".expense-row").filter({ hasText: "ทีมทดสอบเฟสสี่" }),
+  ).toContainText("3500 กก. × 1000.00 บาท/ตัน");
+  await page.getByLabel("เลือกรูปบิล", { exact: true }).setInputFiles({
+    name: "phase4.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/nV8AAAAASUVORK5CYII=",
+      "base64",
+    ),
+  });
+  await page.getByRole("button", { name: "ข้ามการอ่านและกรอกเอง" }).click();
+  await expect(page.getByLabel("เลขบิล")).toBeVisible({ timeout: 30000 });
+  await page.getByLabel("ผู้รับซื้อ").fill("ผู้รับซื้อเฟสสี่");
+  await page.getByLabel("เลขบิล").fill("BROWSER-PHASE4");
+  await page.getByLabel("น้ำหนักสุทธิ (กก.)").fill("3500");
+  await page.getByLabel("ราคาต่อกิโลกรัม (บาท)").fill("5");
+  await page
+    .getByRole("button", { name: "ข้อมูลถูกต้อง · เลือกค่าแรง" })
+    .click();
+  await page.getByRole("radio", { name: "รายน้ำหนัก", exact: true }).check();
+  await page.getByLabel("ชื่อทีม", { exact: true }).fill("ทีมทดสอบเฟสสี่");
+  await expect(page.getByLabel("บาทต่อตัน", { exact: true })).toHaveValue(
+    "1000.00",
+  );
+  await expect(page.getByLabel("น้ำหนักคิดค่าแรง (กก.)")).toHaveValue("3500");
+  await page.getByLabel("น้ำหนักคิดค่าแรง (กก.)").fill("3250");
+  await page.getByLabel("บาทต่อตัน", { exact: true }).fill("1200");
+  await page.getByLabel(/จำอัตรานี้/).uncheck();
+  await page.getByLabel("ตรวจข้อมูลแล้ว และได้รับเงินขายเต็มจำนวน").check();
+  await page.getByRole("button", { name: "ยืนยันและบันทึก" }).click();
+  await expect(page.getByText("บันทึกบิลขายแล้ว")).toBeVisible();
+  const sale = page.locator(".sale-row").filter({ hasText: "BROWSER-PHASE4" });
+  await expect(sale).toContainText("3250 กก. × 1200.00 บาท/ตัน = 3,900.00 บาท");
+  await page.reload();
+  await page.getByRole("button", { name: "เพิ่มรายจ่าย", exact: true }).click();
+  await dialog.getByLabel("ชนิดรายจ่าย").selectOption("weight_labor");
+  await dialog.getByLabel("ผู้รับเงิน", { exact: true }).fill("ทีมทดสอบเฟสสี่");
+  await expect(dialog.getByLabel("บาทต่อตัน")).toHaveValue("1000.00");
+  await dialog.getByLabel("น้ำหนักคิดค่าแรง (กก.)").fill("1000");
+  await dialog.getByLabel("บาทต่อตัน").fill("1500");
+  await dialog.getByLabel(/จำอัตรานี้/).uncheck();
+  await dialog.getByLabel("การจ่ายครั้งแรก").selectOption("full");
+  await dialog
+    .getByRole("button", { name: "ยืนยันรายจ่าย", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  const after = await (await page.request.get("/api/v1/summary")).json();
+  expect(after.netMinor).toBe(before.netMinor + 860000);
+  expect(after.expensePendingMinor).toBe(before.expensePendingMinor + 350000);
+  expect(after.laborPendingMinor).toBe(before.laborPendingMinor + 390000);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  expect(errors).toEqual([]);
+});
 test("failed saves keep form input, and administrator reset forces a new login", async ({
   page,
 }) => {

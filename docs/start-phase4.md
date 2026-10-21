@@ -1,3 +1,5 @@
+> ข้อความเริ่มงานเดิม: Phase 4 implement และทดสอบแล้ว ดู [ผลส่งมอบล่าสุด](handoff-phase4.md) ก่อนใช้ข้อความเก่านี้ ไม่เริ่ม Phase 4 ซ้ำ
+
 ทำงานต่อใน repository SitthiwatR/palm-ledger สาขา main ล่าสุด
 
 อ่าน AGENTS.md, docs/handoff-phase4.md, docs/handoff-phase3.md, docs/handoff-phase2.md, docs/receipt-first-workflow.md, docs/development.md, plans/palm-ledger.md และ app-spec.md ก่อนลงมือ

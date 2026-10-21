@@ -3,6 +3,7 @@ export type LaborInput = {
   payee: string;
   quantity: string;
   rateBaht: string;
+  rememberRate?: boolean;
 };
 
 export function scaled(value: string, places: number): bigint {

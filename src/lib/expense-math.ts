@@ -2,6 +2,7 @@ import { z } from "zod";
 import { calculateLabor, scaled } from "./sale-math";
 
 export const expenseKinds = {
+  weight_labor: "ค่าแรงทีมตามผลผลิต",
   daily_labor: "ค่าแรงรายวัน",
   fertilizer: "ปุ๋ยที่ใช้จริง",
   material: "วัตถุดิบ",
@@ -14,6 +15,7 @@ export const expenseRequest = z
     expenseDate: z.iso.date(),
     kind: z.enum([
       "daily_labor",
+      "weight_labor",
       "fertilizer",
       "material",
       "maintenance",
@@ -21,7 +23,7 @@ export const expenseRequest = z
     ]),
     payee: z.string().trim().min(1).max(120),
     note: z.string().trim().max(2000).default(""),
-    unit: z.enum(["day", "sack", "item"]),
+    unit: z.enum(["day", "kg", "sack", "item"]),
     quantity: z.string().regex(/^\d{1,7}(?:\.\d{1,3})?$/),
     rateBaht: z.string().regex(/^\d{1,9}(?:\.\d{1,2})?$/),
     paymentStatus: z.enum(["full", "partial", "unpaid"]),
@@ -39,9 +41,11 @@ export function calculateExpense(input: ExpenseInput) {
   const expectedUnit =
     input.kind === "daily_labor"
       ? "day"
-      : input.kind === "fertilizer"
-        ? "sack"
-        : "item";
+      : input.kind === "weight_labor"
+        ? "kg"
+        : input.kind === "fertilizer"
+          ? "sack"
+          : "item";
   if (input.unit !== expectedUnit) throw new Error("หน่วยไม่ตรงกับชนิดรายจ่าย");
   const quantity = scaled(input.quantity, 3),
     rate = scaled(input.rateBaht, 2);
@@ -53,12 +57,15 @@ export function calculateExpense(input: ExpenseInput) {
   )
     throw new Error("กรุณาตรวจจำนวนและอัตรารายจ่าย");
   const amount =
-    input.kind === "daily_labor"
+    input.kind === "daily_labor" || input.kind === "weight_labor"
       ? BigInt(
           calculateLabor({
-            mode: "daily",
+            mode: input.kind === "daily_labor" ? "daily" : "weight",
             payee: input.payee,
-            quantity: String(Number(quantity) / 1000),
+            quantity:
+              input.kind === "daily_labor"
+                ? String(Number(quantity) / 1000)
+                : input.quantity,
             rateBaht: input.rateBaht,
           }).amountMinor,
         )
