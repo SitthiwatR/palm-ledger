@@ -150,4 +150,4 @@ node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts
 
 ## ผลตรวจปัจจุบัน
 
-Phase 2 local checks: model tests 4/4; API integration tests 21/21 กับ PostgreSQL/Auth/PostgREST/Storage จริง; Chromium browser tests 4/4; `typecheck`, `format:check` และ production build ผ่าน Commit `bb0fad8` ถูก push ไป `main`; ยังยืนยัน Vercel deployment ไม่ได้เพราะ Vercel API ไม่มีสิทธิ์ทีม (403) และ production `/records` ตอบ 404 ตอนตรวจ ส่วน hosted flow และ Safari/WebKit บนอุปกรณ์จริงยังไม่ผ่านการตรวจ ผล local เหล่านี้ไม่ใช่หลักฐานว่าทดสอบบน production หรือบน iPhone แล้ว
+Phase 2 local checks: model tests 4/4; API integration tests 21/21 กับ PostgreSQL/Auth/PostgREST/Storage จริง; Chromium browser tests 4/4; `typecheck`, `format:check` และ production build ผ่าน Commit `bb0fad8` (feature) และ `7315442` (เอกสาร) ถูก push ไป `main`; production `/records` ตอบ 200 และ unauthenticated sales API ตอบ 401 แต่ยังยืนยัน Vercel deployment state/commit หรือ migration log ไม่ได้เพราะ Vercel API ไม่มีสิทธิ์ทีม (403). ส่วน hosted sale flow และ Safari/WebKit บนอุปกรณ์จริงยังไม่ผ่านการตรวจ ผล local เหล่านี้ไม่ใช่หลักฐานว่าทดสอบบน production หรือบน iPhone แล้ว

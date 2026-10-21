@@ -4,7 +4,7 @@
 
 ## ข้อตกลงและผลเฟสแรก
 
-**Phase 1 เสร็จและผู้ใช้รับงานแล้ว; Phase 2 implement และผ่านการตรวจใน local test stack แล้ว** โค้ด push ไป `main` แล้วใน commit `bb0fad8`. ยังปิดการตรวจ deployment ไม่ได้: Vercel API ตอบ 403 เพราะ integration ไม่มีสิทธิ์ทีม `team_PnTYWZ1rB5hOoQSGOZwv0aFW` (CLI `vercel` ไม่มีใน environment); ตรวจ production URL ได้ `/login` 200, unauthenticated `/api/v1/sales` 401 และ `/records` 404 ณ เวลาตรวจ จึงยังไม่ยืนยันว่า commit นี้ deploy สำเร็จ
+**Phase 1 เสร็จและผู้ใช้รับงานแล้ว; Phase 2 implement และผ่านการตรวจใน local test stack แล้ว** โค้ด push ไป `main` ใน `bb0fad8`; เอกสารปิดงานอยู่ใน `7315442`. ตรวจ production URL หลัง push ได้ `/login` 200, `/records` 200 และ unauthenticated `/api/v1/sales` 401. อย่างไรก็ตาม ยังยืนยัน deployment state/commit และ migration log จาก Vercel ไม่ได้: Vercel API ตอบ 403 เพราะ integration ไม่มีสิทธิ์ทีม `team_PnTYWZ1rB5hOoQSGOZwv0aFW` และ CLI `vercel` ไม่มีใน environment
 
 - Next.js รวม frontend/API, TypeScript, Node.js 24, Supabase PostgreSQL/Auth
 - บัญชีเจ้าของคนเดียว ใช้ username/password, session 30 วัน, logout และคำสั่งผู้ดูแลสร้าง/รีเซ็ตรหัส
@@ -73,4 +73,4 @@ TEST_APP_MODE=production npm run test:browser
 
 คำสั่งชุดนี้สำหรับ bash ใน cloud ใช้ Node.js 24 และ Docker; อย่ารัน API/browser suites พร้อมกันเพราะใช้ test database/พอร์ตเดียวกัน และอย่า build ขณะ test dev server ใช้ `.next` อยู่ Tests โหลด `.env.test.local` และมี guard ว่าชี้เฉพาะฐานทดสอบ localhost เท่านั้น ห้ามแก้ guard ให้ชี้ production
 
-หลังผู้ใช้ให้ Vercel integration เข้าถึงทีม ให้ตรวจ deployment ของ `bb0fad8` จนเป็น Ready และตรวจ build/migration log ก่อนบันทึก deployment ID/status ในเอกสารนี้และ [แผน](../plans/palm-ledger.md) โดยรักษาข้อมูลและบัญชีเดิม
+หลังผู้ใช้ให้ Vercel integration เข้าถึงทีม ให้ตรวจ deployment ที่สร้างจาก `main` จนเป็น Ready และตรวจ build/migration log ก่อนบันทึก deployment ID/status ในเอกสารนี้และ [แผน](../plans/palm-ledger.md) โดยรักษาข้อมูลและบัญชีเดิม
