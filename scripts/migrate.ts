@@ -62,9 +62,22 @@ if (process.argv[1]?.endsWith("migrate.ts")) {
       );
     })
     .catch((error) => {
+      let message = String(error?.message || "Unknown database error");
+      for (const [name, value] of Object.entries(process.env)) {
+        if (
+          value &&
+          value.length >= 6 &&
+          /TOKEN|KEY|SECRET|PASSWORD|DATABASE_URL|POSTGRES_URL/.test(name)
+        )
+          message = message.replaceAll(value, "[REDACTED]");
+      }
+      message = message.replace(
+        /(postgres(?:ql)?:\/\/)[^\s@]+@/g,
+        "$1[REDACTED]@",
+      );
       console.error(
         "Migration failed; inspect migration and database readiness.",
-        { name: error?.name, code: error?.code },
+        { name: error?.name, code: error?.code, message },
       );
       process.exitCode = 1;
     })
