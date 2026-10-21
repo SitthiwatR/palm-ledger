@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import type { ChildProcess } from "node:child_process";
 import { prepare, password, username, startApp, stopApp } from "../support";
 import { manageOwner } from "../../scripts/owner";
-import { receiptFixture } from "./receipt-fixture";
+import { receiptFixture, tableReceiptFixture } from "./receipt-fixture";
 import { readFileSync } from "node:fs";
 
 let app: ChildProcess;
@@ -131,7 +131,8 @@ test("owner signs in, adds and edits gardens, preserves balances across devices,
     .click();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "ยืนยันและบันทึก" }).click();
-  await expect(page.locator(".sale-row")).toHaveCount(2);
+  // Saving refreshes session, gardens and sales in sequence; allow their network round trips.
+  await expect(page.locator(".sale-row")).toHaveCount(2, { timeout: 15000 });
   await page.getByRole("link", { name: "ภาพรวม", exact: true }).click();
   await expect(page.locator(".total")).toHaveText("73,300.50");
   await page
@@ -281,6 +282,121 @@ test("HEIC preview, manual fallback and daily wages retain values after a failed
     path: "test-results/labor-daily-mobile.png",
     fullPage: true,
   });
+});
+test("blue table receipt separates net weight and same-row price/total", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  await page.goto("/login");
+  await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+  await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  const gardens = await page.request.get("/api/v1/gardens");
+  if (
+    !(await gardens.json()).gardens.some(
+      (g: { archived: boolean }) => !g.archived,
+    )
+  )
+    await page.request.post("/api/v1/gardens", {
+      headers: {
+        Origin: "http://127.0.0.1:3100",
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      data: { name: "สวนทดสอบอ่านภาพ", openingMinor: 0 },
+    });
+  await page.getByRole("link", { name: /รายการ/ }).click();
+  let saleWrites = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/v1/sales"
+    )
+      saleWrites++;
+  });
+  const started = Date.now();
+  const fixture = await tableReceiptFixture(page);
+  await page.getByLabel("เลือกรูปบิล", { exact: true }).setInputFiles(fixture);
+  await expect(page.getByLabel("น้ำหนักสุทธิ (กก.)")).toBeVisible({
+    timeout: 55000,
+  });
+  console.log({
+    tablePhotoOcrMs: Date.now() - started,
+    weight: await page.getByLabel("น้ำหนักสุทธิ (กก.)").inputValue(),
+    price: await page.getByLabel("ราคาต่อกิโลกรัม (บาท)").inputValue(),
+    invoicePresent: Boolean(await page.getByLabel("เลขบิล").inputValue()),
+  });
+  await expect(page.getByLabel("น้ำหนักสุทธิ (กก.)")).toHaveValue("1480");
+  await expect(page.getByLabel("ราคาต่อกิโลกรัม (บาท)")).toHaveValue("8.70");
+  await expect(page.getByLabel("วันที่ขาย")).toHaveValue("2026-08-28");
+  await expect(page.getByLabel("เลขบิล")).toHaveValue("123456789");
+  await expect(page.locator(".sale-calculation")).toContainText("12,876.00");
+  await expect(page.locator(".sale-calculation small")).toContainText(
+    "12876.00",
+  );
+  expect(saleWrites).toBe(0);
+});
+test("private reference photo reads printed table values without saving a sale", async ({
+  page,
+}) => {
+  test.skip(
+    !process.env.OCR_REAL_RECEIPT_PATH,
+    "The user-provided private photo is supplied locally and is never committed.",
+  );
+  test.setTimeout(90000);
+  await page.goto("/login");
+  await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+  await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  const gardens = await page.request.get("/api/v1/gardens");
+  if (
+    !(await gardens.json()).gardens.some(
+      (g: { archived: boolean }) => !g.archived,
+    )
+  )
+    await page.request.post("/api/v1/gardens", {
+      headers: {
+        Origin: "http://127.0.0.1:3100",
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      data: { name: "สวนทดสอบอ่านภาพ", openingMinor: 0 },
+    });
+  await page.getByRole("link", { name: /รายการ/ }).click();
+  let saleWrites = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/v1/sales"
+    )
+      saleWrites++;
+  });
+  const started = Date.now();
+  await page
+    .getByLabel("เลือกรูปบิล", { exact: true })
+    .setInputFiles(process.env.OCR_REAL_RECEIPT_PATH!);
+  await expect(page.getByLabel("น้ำหนักสุทธิ (กก.)")).toBeVisible({
+    timeout: 55000,
+  });
+  console.log({
+    privatePhotoOcrMs: Date.now() - started,
+    weight: await page.getByLabel("น้ำหนักสุทธิ (กก.)").inputValue(),
+    price: await page.getByLabel("ราคาต่อกิโลกรัม (บาท)").inputValue(),
+    invoicePresent: Boolean(await page.getByLabel("เลขบิล").inputValue()),
+  });
+  await expect(page.getByLabel("น้ำหนักสุทธิ (กก.)")).toHaveValue("1480");
+  await expect(page.getByLabel("ราคาต่อกิโลกรัม (บาท)")).toHaveValue("8.70");
+  await expect(page.getByLabel("วันที่ขาย")).toHaveValue("2026-08-28");
+  if (process.env.OCR_REAL_EXPECTED_INVOICE)
+    await expect(page.getByLabel("เลขบิล")).toHaveValue(
+      process.env.OCR_REAL_EXPECTED_INVOICE,
+    );
+  else await expect(page.getByLabel("เลขบิล")).not.toHaveValue("");
+  await expect(page.locator(".sale-calculation")).toContainText("12,876.00");
+  await expect(page.locator(".sale-calculation small")).toContainText(
+    "12876.00",
+  );
+  expect(saleWrites).toBe(0);
 });
 test("failed saves keep form input, and administrator reset forces a new login", async ({
   page,

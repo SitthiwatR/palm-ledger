@@ -661,9 +661,7 @@ export function SaleForm({
                   <span>รายรับสุทธิตามข้อมูล</span>
                   <strong>{net === null ? "—" : money(net)} บาท</strong>
                   {draft?.printedNetBaht && (
-                    <small>
-                      ยอดสุทธิที่อ่านจากบิล {draft.printedNetBaht} บาท
-                    </small>
+                    <small>ยอดที่อ่านจากบิล {draft.printedNetBaht} บาท</small>
                   )}
                   {draft?.printedNetBaht &&
                     net !== null &&

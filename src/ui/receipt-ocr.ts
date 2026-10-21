@@ -1,4 +1,11 @@
-import { parseReceipt } from "../lib/receipt-parser";
+import {
+  mergeReceiptDrafts,
+  needsReceiptRetry,
+  parseReceipt,
+  recoverReceiptWeight,
+} from "../lib/receipt-parser";
+import { receiptRows, netWeightRegion } from "../lib/receipt-layout";
+import { enhanceReceiptImage, receiptRegion } from "./receipt-image";
 
 export function receiptMime(file: File) {
   const mime = file.type.toLowerCase();
@@ -77,6 +84,9 @@ export async function readReceipt(
     return await Promise.race([
       cancelled,
       (async () => {
+        onProgress("กำลังปรับภาพและจัดแนวตารางบิล…");
+        const prepared = await enhanceReceiptImage(image);
+        signal.throwIfAborted();
         onProgress("กำลังเตรียมตัวอ่านภาษาไทยและอังกฤษ…");
         worker = await createWorker(["tha", "eng"], OEM.LSTM_ONLY, {
           workerPath: "/ocr/worker.min.js",
@@ -96,11 +106,66 @@ export async function readReceipt(
           signal.throwIfAborted();
         }
         await worker.setParameters({
-          tessedit_pageseg_mode: PSM.AUTO,
+          tessedit_pageseg_mode: PSM.SPARSE_TEXT,
           preserve_interword_spaces: "1",
         });
-        const { data } = await worker.recognize(image);
-        return parseReceipt(data.text, data.confidence);
+        const drafts = [];
+        let weightRegion: ReturnType<typeof netWeightRegion> = null;
+        for (const [index, variant] of [
+          prepared.cleanImage,
+          prepared.fallbackImage,
+        ].entries()) {
+          signal.throwIfAborted();
+          if (index) {
+            onProgress("กำลังตรวจช่องตารางที่อ่านไม่ชัดอีกครั้ง…");
+            await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
+          }
+          const { data } = await worker.recognize(
+            variant,
+            {},
+            { text: true, blocks: true },
+          );
+          const words =
+            data.blocks?.flatMap((block) =>
+              block.paragraphs.flatMap((paragraph) =>
+                paragraph.lines.flatMap((line) => line.words),
+              ),
+            ) ?? [];
+          weightRegion ??= netWeightRegion(words);
+          const rows = receiptRows(words);
+          drafts.push(parseReceipt(rows || data.text, data.confidence));
+          if (rows && rows !== data.text)
+            drafts.push(parseReceipt(data.text, data.confidence));
+          let result = mergeReceiptDrafts(drafts);
+          if (
+            needsReceiptRetry(result) &&
+            result.priceBahtPerKg &&
+            result.printedNetBaht
+          ) {
+            const focused = weightRegion
+              ? await receiptRegion(prepared.cleanImage, weightRegion)
+              : null;
+            if (focused) {
+              onProgress("กำลังตรวจน้ำหนักสุทธิในช่องตาราง…");
+              await worker.setParameters({
+                tessedit_pageseg_mode: PSM.SINGLE_LINE,
+                tessedit_char_whitelist: "0123456789,.",
+              });
+              const cell = await worker.recognize(focused);
+              const recovered = recoverReceiptWeight(result, cell.data.text);
+              if (recovered) {
+                drafts.push(recovered);
+                result = mergeReceiptDrafts(drafts);
+              }
+              await worker.setParameters({
+                tessedit_pageseg_mode: index ? PSM.AUTO : PSM.SPARSE_TEXT,
+                tessedit_char_whitelist: "",
+              });
+            }
+          }
+          if (!needsReceiptRetry(result) || index === 1) return result;
+        }
+        return mergeReceiptDrafts(drafts);
       })(),
     ]);
   } finally {

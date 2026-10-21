@@ -8,6 +8,8 @@
 
 **คำสั่งเพิ่มเติม 21 ตุลาคม 2569:** เปลี่ยนเป็นอัปโหลดรูป → รีวิว/แก้เฉพาะข้อมูลที่ผิด → เลือกค่าแรงรายวันหรือรายน้ำหนัก เป้าหมายจบใน 1 นาที ผู้ใช้เลือก OCR ฟรีในเบราว์เซอร์ ทำแล้วใน `3fc6e19`, production deployment `dpl_DspeWgS4c7Pzayqqso8rzdBaipFH` READY พร้อม migration log และ production metadata/HTTP checks ผ่าน รายละเอียดผลตรวจ/ข้อจำกัดด้านอุปกรณ์จริงอยู่ใน [receipt-first-workflow.md](receipt-first-workflow.md)
 
+**แก้ OCR ตามภาพจริงที่ผู้ใช้แจ้ง:** เพิ่มตัดฉากหลัง/ปรับแสง/เส้นตารางเอียง และจัดแถวจากตำแหน่งคำ อ่านช่องน้ำหนักสุทธิซ้ำพร้อมเทียบยอดที่พิมพ์ รูปจริงใน isolated test stack ได้ 1,480 กก. × 8.70 = 12,876 บาท พร้อมวันที่/เลขบิลตรงภาพ ประมาณ 15–22 วินาที Full Chromium 7/7 ผ่าน ไม่เก็บรูปส่วนตัวใน Git และไม่สร้างรายการขายทดสอบบน production; ยังต้องตรวจ iPhone/Safari กับผู้ใช้
+
 - Next.js รวม frontend/API, TypeScript, Node.js 24, Supabase PostgreSQL/Auth
 - บัญชีเจ้าของคนเดียว ใช้ username/password, session 30 วัน, logout และคำสั่งผู้ดูแลสร้าง/รีเซ็ตรหัส
 - เพิ่ม/แก้สวนและยอดสุทธิยกมา เก็บสวนเป็นประวัติ ดูยอดรวม มี validation, audit, RLS, idempotency และป้องกันข้อมูลจากแท็บเก่าทับข้อมูลใหม่
