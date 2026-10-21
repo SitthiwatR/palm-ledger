@@ -41,4 +41,8 @@ HEIC/HEIF ใช้ `heic-to@1.6.6` แปลงสำเนาสำหรั�
 
 Baseline เดิม `main` ที่ `911322c` ตรวจ Vercel ได้ READY: `dpl_D4kfo1hH7eJvu8g3ayKdzzjRe8ba`; logs มี `Migrations applied.` และ `Owner login: configured` หลังผู้ใช้เพิ่มสิทธิ์แล้ว
 
-รอบ workflow ใหม่: รอ commit/push และตรวจ deployment state/commit กับ build/migration log จริง ไม่สร้างรายการทดสอบบน production
+รอบ workflow ใหม่: feature commit `3fc6e197a2b35fdfd4da212883a1ebf247a20289` push ไป `main` แล้ว Vercel production deployment `dpl_DspeWgS4c7Pzayqqso8rzdBaipFH` เป็น **READY** และ metadata ชี้ commit/branch/repository ตรงกัน Build logs มี `Migrations applied.`, `Owner login: configured` และ `Local Thai/English OCR assets prepared.`
+
+ตรวจ SQL metadata แบบอ่านอย่างเดียวบน project `feotpdylvprtihgklndj`: migration ใหม่ applied จริง, สองตารางเปิด RLS, authenticated อ่านได้แต่ INSERT โดยตรงไม่ได้ และ anon อ่านไม่ได้ Security advisors ไม่พบข้อแจ้งใหม่ของ migration; ยังมี warning เดิมเรื่อง [leaked password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) ซึ่งไม่ได้เปลี่ยนในงานนี้
+
+Production <https://palm-ledger-nine.vercel.app>: `/login` และ `/records` ตอบ 200; unauthenticated `/api/v1/sales` ตอบ 401; OCR worker, Thai/English traineddata และ WASM loader ตอบ 200 พร้อม MIME ที่ถูกต้อง ไม่สร้างรายการขาย ค่าแรง หรือรูปทดสอบบน production

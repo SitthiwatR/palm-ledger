@@ -6,7 +6,7 @@
 
 **Phase 1 เสร็จและผู้ใช้รับงานแล้ว; Phase 2 deploy แล้วและผู้ใช้ยืนยันใช้งานได้** หลังผู้ใช้เพิ่มสิทธิ์ Vercel ตรวจ `main` ที่ `911322c` ได้ deployment `dpl_D4kfo1hH7eJvu8g3ayKdzzjRe8ba` เป็น READY พร้อม `Migrations applied.` และ `Owner login: configured`. ไม่ติดปัญหา 403 เดิมแล้ว
 
-**คำสั่งเพิ่มเติม 21 ตุลาคม 2569:** เปลี่ยนเป็นอัปโหลดรูป → รีวิว/แก้เฉพาะข้อมูลที่ผิด → เลือกค่าแรงรายวันหรือรายน้ำหนัก เป้าหมายจบใน 1 นาที ผู้ใช้เลือก OCR ฟรีในเบราว์เซอร์ รายละเอียดการทำงาน/ผลตรวจและ deployment รอบใหม่อยู่ใน [receipt-first-workflow.md](receipt-first-workflow.md)
+**คำสั่งเพิ่มเติม 21 ตุลาคม 2569:** เปลี่ยนเป็นอัปโหลดรูป → รีวิว/แก้เฉพาะข้อมูลที่ผิด → เลือกค่าแรงรายวันหรือรายน้ำหนัก เป้าหมายจบใน 1 นาที ผู้ใช้เลือก OCR ฟรีในเบราว์เซอร์ ทำแล้วใน `3fc6e19`, production deployment `dpl_DspeWgS4c7Pzayqqso8rzdBaipFH` READY พร้อม migration log และ production metadata/HTTP checks ผ่าน รายละเอียดผลตรวจ/ข้อจำกัดด้านอุปกรณ์จริงอยู่ใน [receipt-first-workflow.md](receipt-first-workflow.md)
 
 - Next.js รวม frontend/API, TypeScript, Node.js 24, Supabase PostgreSQL/Auth
 - บัญชีเจ้าของคนเดียว ใช้ username/password, session 30 วัน, logout และคำสั่งผู้ดูแลสร้าง/รีเซ็ตรหัส

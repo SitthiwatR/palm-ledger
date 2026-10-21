@@ -95,7 +95,7 @@
 - [x] รายรับกับค่าแรงค้างจ่ายบันทึกพร้อมกัน; server คำนวณด้วย integer arithmetic ค่าแรงลดสุทธิครั้งเดียวและแสดงค้างจ่าย แยกจากยอดหักบนบิล
 - [x] ทดสอบ transaction rollback, retry/idempotency, RLS, HEIC preview และ form preservation ด้วยบริการจริงใน isolated test stack
 - [ ] เป้าหมายจบใน 1 นาที: browser automation กับบิลภาษาไทยสังเคราะห์ทำได้ประมาณ 4.7–7.1 วินาที ยังต้องตรวจเวลาของผู้ใช้กับรูปบิลจริงบน iPhone/Safari
-- [ ] ตรวจ deployment รอบเปลี่ยน workflow หลัง commit/push
+- [x] Feature `3fc6e19` push `main` แล้ว; Vercel production `dpl_DspeWgS4c7Pzayqqso8rzdBaipFH` READY พร้อม migration/build logs ผ่าน ตรวจ production SQL metadata, RLS และ HTTP/OCR assets แล้ว โดยไม่สร้างข้อมูลทดสอบบน production
 
 ## Phase 3: รายจ่ายทั่วไป ค่าแรงรายวัน และปุ๋ย
 
