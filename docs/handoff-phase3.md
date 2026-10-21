@@ -39,7 +39,14 @@
 
 Phase 4 ตรวจ/เติมค่าแรงทีมผูกบิลจากฐานที่มีอยู่; Phase 5 ทำการจ่ายหนี้ภายหลัง ยกเลิกการจ่ายผิด และหนี้เดิม โดยรองรับทั้ง `sale_labor` เดิมและ `expenses` ใหม่ ห้ามหักสุทธิซ้ำจากการจ่าย การบันทึกจ่ายครั้งแรกในเฟสนี้ไม่ใช่การปิด Phase 5 ส่วนการแก้/ยกเลิกรายจ่ายและตัวกรองยังตามแผนเดิม
 
-ผล deployment หลัง push จะบันทึกเพิ่มเติมด้านล่าง โดยตรวจ SHA ของ commit ไม่อ้าง deployment เก่าแทนรอบนี้
+### Deployment Phase 3 ที่ตรวจแล้ว
+
+- Code `811fae4927d243878eeaeb5349acf0fa31611a1f` push `main` แล้ว; Vercel production `dpl_H27xMDMHg1PF49cBca7ngZQQest5` เป็น **READY** และ alias เว็บจริงตรงกับ deployment นี้
+- [เว็บจริง](https://palm-ledger-nine.vercel.app) · [deployment](https://vercel.com/self-ade5/palm-ledger/H27xMDMHg1PF49cBca7ngZQQest5) · Next.js 16.4.2; build output ประมาณ 18 วินาที, จากเริ่ม build ถึง Ready ประมาณ 24 วินาที
+- Build logs: `Migrations applied.`, `Owner login: configured`, `Compiled successfully`, `Deployment completed` — migration เพิ่ม schema โดยคงข้อมูล/บัญชี/รูปเดิม ไม่มีการแก้ env หรือ reset production
+- ตรวจแบบอ่านอย่างเดียวบน production: `/login` และ `/records` → HTTP 200, `/api/v1/expenses` ไม่มี session → 401; JavaScript ที่เว็บจริงเสิร์ฟมีปุ่มเพิ่มรายจ่ายและ `expensePendingMinor` แล้ว ไม่สร้างรายการ/รูปทดสอบบน production
+- Runtime error/fatal scan ของ deployment นี้ในช่วง 10 นาทีที่ตรวจ: ไม่พบแถว error; project ยังไม่มี drains จึงเป็นหลักฐานเฉพาะช่วงที่ตรวจ ไม่อ้างการเฝ้าระวังระยะยาว
+- เอกสารบันทึกผลนี้อยู่ใน commit ถัดจาก code release; ต้องตรวจ deployment ของ HEAD ล่าสุดเป็น Ready อีกครั้งหลัง push เอกสาร
 
 ## คำตัดสินล่าสุดของผู้ใช้
 

@@ -107,6 +107,8 @@
 
 **สถานะ: พัฒนาและทดสอบแล้ว วันที่ 21 ตุลาคม 2569 ยังรอผู้ใช้ตรวจรับ Phase 3** ดู [handoff/รายละเอียด API และหลักฐาน](../docs/handoff-phase3.md) ใช้ `labor_profiles` และสูตรค่าแรงเดิม โดยไม่คัดลอก `sale_labor` เป็นรายจ่ายใหม่หรือเปลี่ยนยอดย้อนหลัง
 
+**Deployment:** code `811fae4` บน `main` → Vercel `dpl_H27xMDMHg1PF49cBca7ngZQQest5` **READY**, migration/owner logs และ HTTP/served JavaScript ผ่าน ดู [หลักฐาน](../docs/handoff-phase3.md)
+
 **ผลตรวจ:** model 4/4, unit/API/CLI 41/41, Chromium ของ production build 7 ผ่าน + 1 ข้าม (รูปส่วนตัว OCR ไม่ได้ส่งเข้าในรอบนี้), typecheck/format/build ผ่าน ทดสอบกับ PostgreSQL/Auth/REST/Storage จริงใน isolated local stack เท่านั้น ไม่สร้างข้อมูลทดสอบบน production; Safari/iPhone และคุณภาพ OCR คง Phase 10
 
 **User stories:** 23–29, 32, 43
