@@ -425,6 +425,14 @@ export function Ledger({
   view: "home" | "gardens" | "garden" | "records";
   gardenId?: string;
 }) {
+  const [summary, setSummary] = useState({
+    netMinor: 0,
+    laborPendingMinor: 0,
+    expensePendingMinor: 0,
+    openingDebtPendingMinor: 0,
+    sharedUnallocatedMinor: 0,
+    sharedUnallocatedPendingMinor: 0,
+  });
   const [payables, setPayables] = useState<Payable[]>([]);
   const [expenseModal, setExpenseModal] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -444,6 +452,7 @@ export function Ledger({
       await api("session");
       const result = await api("gardens");
       setGardens(result.gardens);
+      setSummary(result.summary);
       if (view === "records") {
         const [ledger, costs, debts] = await Promise.all([
           api("sales"),
@@ -496,7 +505,7 @@ export function Ledger({
     }
   }
   const selected = gardens.find((g) => g.id === gardenId),
-    total = gardens.reduce((sum, g) => sum + g.netMinor, 0);
+    total = summary.netMinor;
   async function archive() {
     if (!selected || actionLock.current) return;
     if (
@@ -656,7 +665,6 @@ export function Ledger({
               <button
                 ref={expenseTrigger}
                 className="primary"
-                disabled={!gardens.some((g) => !g.archived)}
                 onClick={() => setExpenseModal(true)}
               >
                 เพิ่มรายจ่าย
@@ -665,10 +673,11 @@ export function Ledger({
             <SaleForm gardens={gardens} onSaved={load} />
             <Payables
               entries={payables}
+              onRefresh={load}
               gardens={gardens}
               onSaved={async () => {
                 await load();
-                setNotice("บันทึกหนี้และการจ่ายแล้ว");
+                setNotice("บันทึกข้อมูลแล้ว");
               }}
             />
             <div className="section-heading records-heading">
@@ -787,37 +796,23 @@ export function Ledger({
                   <h2>ยอดสุทธิรวมทุกสวน</h2>
                   <div className="total">{baht(total)}</div>
                   <p>บาท · ยอดยกมา + รายรับขาย − รายจ่ายทั้งหมด</p>
-                  {gardens.some((g) => g.laborPendingMinor > 0) && (
-                    <p>
-                      ค่าแรงค้างจ่าย{" "}
-                      {baht(
-                        gardens.reduce(
-                          (sum, g) => sum + g.laborPendingMinor,
-                          0,
-                        ),
-                      )}{" "}
-                      บาท
-                    </p>
+                  {summary.laborPendingMinor > 0 && (
+                    <p>ค่าแรงค้างจ่าย {baht(summary.laborPendingMinor)} บาท</p>
                   )}
                   <p>
-                    รายจ่ายอื่นค้างจ่าย{" "}
-                    {baht(
-                      gardens.reduce(
-                        (sum, g) => sum + g.expensePendingMinor,
-                        0,
-                      ),
-                    )}{" "}
-                    บาท
+                    รายจ่ายอื่นค้างจ่าย {baht(summary.expensePendingMinor)} บาท
                   </p>
                   <p>
                     หนี้ก่อนเริ่มระบบค้างจ่าย{" "}
-                    {baht(
-                      gardens.reduce(
-                        (sum, g) => sum + g.openingDebtPendingMinor,
-                        0,
-                      ),
-                    )}{" "}
-                    บาท
+                    {baht(summary.openingDebtPendingMinor)} บาท
+                  </p>
+                  <p>
+                    ส่วนกลางยังไม่แบ่ง {baht(summary.sharedUnallocatedMinor)}{" "}
+                    บาท · หักในยอดสุทธิรวมแล้ว
+                  </p>
+                  <p>
+                    ในนี้ค้างจ่ายส่วนกลาง{" "}
+                    {baht(summary.sharedUnallocatedPendingMinor)} บาท
                   </p>
                   <span className="hero-detail">
                     รวมสวนที่เก็บเป็นประวัติแล้ว

@@ -11,7 +11,7 @@ export const expenseKinds = {
 } as const;
 export const expenseRequest = z
   .object({
-    gardenId: z.uuid(),
+    gardenId: z.uuid().nullable(),
     expenseDate: z.iso.date(),
     kind: z.enum([
       "daily_labor",

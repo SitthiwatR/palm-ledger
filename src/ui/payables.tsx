@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { AllocationForm } from "./allocation-form";
 import { api, message } from "./api";
 
 export type Payable = {
   id: string;
   source: "expenses" | "sale-labor" | "opening-debts";
-  gardenId: string;
+  gardenId: string | null;
   gardenName: string;
   businessDate: string;
   kind: string;
@@ -15,6 +16,14 @@ export type Payable = {
   amountMinor: number;
   paidMinor: number;
   pendingMinor: number;
+  allocationVersion: number;
+  allocations: {
+    gardenId: string;
+    gardenName: string;
+    amountMinor: number;
+    paidMinor: number;
+    pendingMinor: number;
+  }[];
   payments: Payment[];
 };
 type Payment = {
@@ -56,7 +65,9 @@ export function Payables({
   entries,
   gardens,
   onSaved,
+  onRefresh,
 }: {
+  onRefresh: () => Promise<void>;
   entries: Payable[];
   gardens: Garden[];
   onSaved: () => Promise<void>;
@@ -64,6 +75,7 @@ export function Payables({
   const [payee, setPayee] = useState("");
   const [gardenId, setGardenId] = useState("");
   const [pendingOnly, setPendingOnly] = useState(false);
+  const [allocation, setAllocation] = useState<Payable | null>(null);
   const [action, setAction] = useState<Action | null>(null);
   const trigger = useRef<HTMLElement | null>(null);
   const panel = useRef<HTMLElement>(null);
@@ -73,9 +85,30 @@ export function Payables({
   const filtered = entries.filter(
     (e) =>
       (!payee || e.payee === payee) &&
-      (!gardenId || e.gardenId === gardenId) &&
-      (!pendingOnly || e.pendingMinor > 0),
+      matchesGarden(e) &&
+      (!pendingOnly || selectedPending(e) > 0),
   );
+  function selectedPending(e: Payable) {
+    return !gardenId
+      ? e.pendingMinor
+      : gardenId === "shared"
+        ? e.gardenId === null && !e.allocations.length
+          ? e.pendingMinor
+          : 0
+        : e.gardenId === gardenId
+          ? e.pendingMinor
+          : (e.allocations.find((a) => a.gardenId === gardenId)?.pendingMinor ??
+            0);
+  }
+  function matchesGarden(e: Payable) {
+    return (
+      !gardenId ||
+      (gardenId === "shared"
+        ? e.gardenId === null && !e.allocations.length
+        : e.gardenId === gardenId ||
+          e.allocations.some((a) => a.gardenId === gardenId))
+    );
+  }
   function open(value: Action) {
     trigger.current = document.activeElement as HTMLElement;
     setAction(value);
@@ -122,11 +155,8 @@ export function Payables({
                 {c} · ค้าง{" "}
                 {money(
                   entries
-                    .filter(
-                      (e) =>
-                        e.payee === c && (!gardenId || e.gardenId === gardenId),
-                    )
-                    .reduce((sum, e) => sum + e.pendingMinor, 0),
+                    .filter((e) => e.payee === c && matchesGarden(e))
+                    .reduce((sum, e) => sum + selectedPending(e), 0),
                 )}{" "}
                 บาท
               </option>
@@ -139,7 +169,8 @@ export function Payables({
             value={gardenId}
             onChange={(e) => setGardenId(e.target.value)}
           >
-            <option value="">ทุกสวน</option>
+            <option value="">ทุกสวนและส่วนกลาง</option>
+            <option value="shared">ส่วนกลางที่ยังไม่แบ่ง</option>
             {gardens.map((g) => (
               <option key={g.id} value={g.id}>
                 {g.name}
@@ -158,7 +189,7 @@ export function Payables({
       </div>
       <p role="status">
         ค้างปัจจุบันตามที่เลือก{" "}
-        {money(filtered.reduce((sum, e) => sum + e.pendingMinor, 0))} บาท
+        {money(filtered.reduce((sum, e) => sum + selectedPending(e), 0))} บาท
       </p>
       <div className="sale-list">
         {!filtered.length && <p className="empty">ไม่มีหนี้ตามที่เลือก</p>}
@@ -182,6 +213,35 @@ export function Payables({
               >
                 บันทึกจ่ายให้ {e.payee}
               </button>
+            )}
+            {e.source === "expenses" && e.gardenId === null && (
+              <>
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    trigger.current = document.activeElement as HTMLElement;
+                    setAllocation(e);
+                  }}
+                >
+                  แบ่งเข้าสวน / แก้ชุดแบ่ง
+                </button>
+                {e.allocations.length > 0 ? (
+                  <div className="allocation-history">
+                    <p>
+                      แบ่งต้นทุนจากรายการนี้ · ยอดจ่ายด้านล่างคำนวณตามสัดส่วน
+                    </p>
+                    {e.allocations.map((a) => (
+                      <p key={a.gardenId}>
+                        {a.gardenName} · ต้นทุน {money(a.amountMinor)} ·
+                        จ่ายตามสัดส่วน {money(a.paidMinor)} · ค้าง{" "}
+                        {money(a.pendingMinor)} บาท
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p>ส่วนกลางที่ยังไม่แบ่งเข้าสวน</p>
+                )}
+              </>
             )}
             <details>
               <summary>ประวัติการจ่าย ({e.payments.length})</summary>
@@ -213,6 +273,18 @@ export function Payables({
           </article>
         ))}
       </div>
+      {allocation && (
+        <AllocationForm
+          entry={allocation}
+          gardens={gardens}
+          onRefresh={onRefresh}
+          onSaved={onSaved}
+          onClose={() => {
+            setAllocation(null);
+            setTimeout(() => trigger.current?.focus(), 0);
+          }}
+        />
+      )}
       {action && (
         <DebtDialog
           action={action}

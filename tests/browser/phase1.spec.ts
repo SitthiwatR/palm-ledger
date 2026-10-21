@@ -750,6 +750,174 @@ test("Phase 5 opening debt, later payments and correction retain history and pre
   expect(errors).toEqual([]);
 });
 
+test("Phase 6 shared cost, allocation retries and stale editors preserve source payments and global totals", async ({
+  page,
+}) => {
+  test.setTimeout(120000);
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/login");
+  await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+  await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  const ids: string[] = [];
+  for (const name of ["สวนแบ่ง UI A", "สวนแบ่ง UI B"]) {
+    const r = await page.request.post("/api/v1/gardens", {
+      headers: {
+        Origin: "http://127.0.0.1:3100",
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      data: { name, openingMinor: 0 },
+    });
+    expect(r.status()).toBe(201);
+    ids.push((await r.json()).id);
+  }
+  const before = await (await page.request.get("/api/v1/summary")).json();
+  await page.goto("/records");
+  await page.getByRole("button", { name: "เพิ่มรายจ่าย", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("สวนที่มีรายจ่าย").selectOption("shared");
+  await dialog.getByLabel("ชนิดรายจ่าย").selectOption("maintenance");
+  await dialog.getByLabel("ผู้รับเงิน").fill("ร้านร่วม UI");
+  await dialog.getByLabel("จำนวนรายการ").fill("1");
+  await dialog.getByLabel("ราคาต่อรายการ (บาท)").fill("1000");
+  await dialog.getByLabel("การจ่ายครั้งแรก").selectOption("partial");
+  await dialog.getByLabel("ยอดจ่ายครั้งแรก (บาท)").fill("333.33");
+  await dialog.getByRole("button", { name: "ยืนยันรายจ่าย" }).click();
+  await expect(dialog).not.toBeVisible();
+  const panel = page.getByRole("region", { name: "หนี้และประวัติการจ่าย" });
+  await panel.getByLabel("คน / ทีม / ร้าน").selectOption("ร้านร่วม UI");
+  await expect(panel).toContainText("ค้างปัจจุบันตามที่เลือก 666.67 บาท");
+  await expect(panel).toContainText("ส่วนกลางที่ยังไม่แบ่งเข้าสวน");
+  const source = await (await page.request.get("/api/v1/payables")).json();
+  const entry = source.payables.find((e: any) => e.payee === "ร้านร่วม UI");
+  expect(entry.payments).toHaveLength(1);
+  let summary = await (await page.request.get("/api/v1/summary")).json();
+  expect(summary.netMinor).toBe(before.netMinor - 100000);
+  expect(summary.sharedUnallocatedMinor).toBe(100000);
+  await panel.getByRole("button", { name: "แบ่งเข้าสวน / แก้ชุดแบ่ง" }).click();
+  const a = dialog.getByLabel("แบ่งให้ สวนแบ่ง UI A (บาท)", { exact: true }),
+    b = dialog.getByLabel("แบ่งให้ สวนแบ่ง UI B (บาท)", { exact: true });
+  await expect(dialog.locator("input").first()).toBeFocused();
+  await a.fill("400");
+  await b.fill("500");
+  await dialog.getByRole("button", { name: "ยืนยันชุดแบ่ง" }).click();
+  await expect(dialog.getByRole("alert")).toBeFocused();
+  await b.fill("600");
+  let fail = true;
+  await page.route("**/api/v1/expenses/*/allocations", async (route) => {
+    if (fail) {
+      fail = false;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: { code: "UNAVAILABLE", message: "ทดสอบบันทึกชุดแบ่งล้มเหลว" },
+        }),
+      });
+    } else await route.continue();
+  });
+  await dialog.getByRole("button", { name: "ยืนยันชุดแบ่ง" }).click();
+  await expect(dialog.getByRole("alert")).toBeFocused();
+  await expect(a).toHaveValue("400");
+  await expect(b).toHaveValue("600");
+  await dialog.getByRole("button", { name: "ยืนยันชุดแบ่ง" }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(panel).toContainText(
+    "สวนแบ่ง UI A · ต้นทุน 400.00 · จ่ายตามสัดส่วน 133.33 · ค้าง 266.67 บาท",
+  );
+  await expect(panel).toContainText(
+    "สวนแบ่ง UI B · ต้นทุน 600.00 · จ่ายตามสัดส่วน 200.00 · ค้าง 400.00 บาท",
+  );
+  summary = await (await page.request.get("/api/v1/summary")).json();
+  expect(summary.netMinor).toBe(before.netMinor - 100000);
+  expect(summary.sharedUnallocatedMinor).toBe(0);
+  await panel.getByLabel("สวนของหนี้").selectOption(ids[0]);
+  await expect(panel).toContainText("ค้างปัจจุบันตามที่เลือก 266.67 บาท");
+  await panel.getByLabel("สวนของหนี้").selectOption("");
+  await page.reload();
+  await panel.getByLabel("คน / ทีม / ร้าน").selectOption("ร้านร่วม UI");
+  await panel.getByRole("button", { name: "แบ่งเข้าสวน / แก้ชุดแบ่ง" }).click();
+  const concurrent = await page.request.put(
+    `/api/v1/expenses/${entry.id}/allocations`,
+    {
+      headers: {
+        Origin: "http://127.0.0.1:3100",
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      data: {
+        expectedVersion: 2,
+        allocations: ids.map((gardenId) => ({ gardenId, amountBaht: "500" })),
+      },
+    },
+  );
+  expect(concurrent.status()).toBe(200);
+  await a.fill("250");
+  await b.fill("750");
+  await dialog.getByRole("button", { name: "ยืนยันชุดแบ่ง" }).click();
+  await expect(dialog.getByRole("alert")).toContainText(
+    "ชุดแบ่งเปลี่ยนจากอีกหน้าจอ",
+  );
+  await expect(
+    dialog.getByRole("button", { name: "ยืนยันชุดแบ่ง" }),
+  ).toBeDisabled();
+  await dialog.getByRole("button", { name: "โหลดชุดแบ่งล่าสุด" }).click();
+  await expect(a).toHaveValue("500.00");
+  await expect(b).toHaveValue("500.00");
+  await a.fill("250");
+  await b.fill("750");
+  await dialog.getByRole("button", { name: "ยืนยันชุดแบ่ง" }).click();
+  await expect(dialog).not.toBeVisible();
+  await panel
+    .getByRole("button", { name: "บันทึกจ่ายให้ ร้านร่วม UI" })
+    .click();
+  await dialog.getByLabel("ยอดจ่าย (บาท)").fill("100");
+  await dialog
+    .getByRole("button", { name: "บันทึกการจ่าย", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  await expect(panel).toContainText("จ่ายตามสัดส่วน 108.33");
+  await panel.locator("summary").click();
+  await panel.getByRole("button", { name: "ยกเลิกการจ่าย 100.00 บาท" }).click();
+  await dialog.getByLabel("เหตุผลที่ยกเลิก").fill("แก้จ่ายร่วม");
+  await dialog.getByRole("button", { name: "ยืนยันยกเลิกการจ่าย" }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(panel).toContainText("แก้จ่ายร่วม");
+  await expect(panel).toContainText("จ่ายตามสัดส่วน 83.33");
+  await page.setViewportSize({ width: 320, height: 740 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/phase6-allocation-mobile.png",
+    fullPage: true,
+  });
+  await panel.getByRole("button", { name: "แบ่งเข้าสวน / แก้ชุดแบ่ง" }).click();
+  await dialog.getByRole("button", { name: "เก็บทั้งหมดเป็นส่วนกลาง" }).click();
+  await dialog.getByRole("button", { name: "ยืนยันชุดแบ่ง" }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(panel).toContainText("ส่วนกลางที่ยังไม่แบ่งเข้าสวน");
+  const final = await (await page.request.get("/api/v1/payables")).json();
+  const original = final.payables.find((e: any) => e.id === entry.id);
+  expect(original.payments).toHaveLength(2);
+  expect(original.payments[0].id).toBe(entry.payments[0].id);
+  expect(original.pendingMinor).toBe(66667);
+  expect(original.allocations).toEqual([]);
+  await page.goto("/");
+  await expect(page.locator(".hero")).toContainText(
+    "ส่วนกลางยังไม่แบ่ง 1,000.00 บาท",
+  );
+  await expect(page.locator(".hero")).toContainText(
+    "ค้างจ่ายส่วนกลาง 666.67 บาท",
+  );
+  summary = await (await page.request.get("/api/v1/summary")).json();
+  expect(summary.netMinor).toBe(before.netMinor - 100000);
+  expect(errors).toEqual([]);
+});
+
 test("failed saves keep form input, and administrator reset forces a new login", async ({
   page,
 }) => {

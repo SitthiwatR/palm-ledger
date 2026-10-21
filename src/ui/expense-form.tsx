@@ -21,6 +21,7 @@ type Prepared = {
 export type Expense = {
   id: string;
   gardenName: string;
+  gardenId: string | null;
   expenseDate: string;
   kind: ExpenseInput["kind"];
   payee: string;
@@ -62,7 +63,7 @@ export function ExpenseForm({
   onClose: () => void;
 }) {
   const [gardenId, setGardenId] = useState(
-    gardens.find((g) => !g.archived)?.id ?? "",
+    gardens.find((g) => !g.archived)?.id ?? "shared",
   );
   const [kind, setKind] = useState<ExpenseInput["kind"]>("other");
   const [date, setDate] = useState(today),
@@ -123,7 +124,7 @@ export function ExpenseForm({
           ? "sack"
           : "item";
   const input: ExpenseInput = {
-    gardenId,
+    gardenId: gardenId === "shared" ? null : gardenId,
     expenseDate: date,
     kind,
     payee,
@@ -222,6 +223,7 @@ export function ExpenseForm({
                 value={gardenId}
                 onChange={(e) => setGardenId(e.target.value)}
               >
+                <option value="shared">ส่วนกลาง — ยังไม่แบ่งเข้าสวน</option>
                 {gardens
                   .filter((g) => !g.archived)
                   .map((g) => (

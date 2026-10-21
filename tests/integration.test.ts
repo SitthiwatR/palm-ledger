@@ -144,6 +144,8 @@ test("creates two gardens, persists opening balances, and rejects duplicate retr
   assert.deepEqual((await request("summary")).data, {
     netMinor: 4280000,
     gardenCount: 2,
+    sharedUnallocatedMinor: 0,
+    sharedUnallocatedPendingMinor: 0,
     openingDebtPendingMinor: 0,
     laborPendingMinor: 0,
     expensePendingMinor: 0,
@@ -508,6 +510,8 @@ test("concurrent edits reject stale versions; archive retains balances, rows and
   assert.deepEqual((await request("summary")).data, {
     netMinor: 7857100,
     gardenCount: 2,
+    sharedUnallocatedMinor: 0,
+    sharedUnallocatedPendingMinor: 0,
     openingDebtPendingMinor: 0,
     laborPendingMinor: 422600,
     expensePendingMinor: 0,
@@ -1262,6 +1266,401 @@ test("phase five validates amounts, dates, void reasons and ownership without mu
   );
 });
 
+let sharedId = "",
+  allocationGardens: string[] = [];
+const allocate = (
+  id: string,
+  amounts: string[],
+  version: number,
+  key = randomUUID(),
+) =>
+  request(
+    `expenses/${id}/allocations`,
+    "PUT",
+    {
+      expectedVersion: version,
+      allocations: amounts.map((amountBaht, i) => ({
+        gardenId: allocationGardens[i],
+        amountBaht,
+      })),
+    },
+    { "Idempotency-Key": key },
+  );
+async function sharedExpense(
+  rateBaht = "1000",
+  paidBaht = "0",
+  receipt = false,
+) {
+  const input = {
+    gardenId: null,
+    expenseDate: "2026-10-21",
+    kind: "maintenance",
+    payee: "ร้านส่วนกลาง",
+    unit: "item",
+    quantity: "1",
+    rateBaht,
+    paymentStatus: paidBaht === "0" ? "unpaid" : "partial",
+    ...(paidBaht !== "0" ? { paidBaht, paymentDate: "2026-10-21" } : {}),
+    ...(receipt ? { pendingReceiptId: await uploadReceipt() } : {}),
+    note: "ร่วมหลายสวน",
+  };
+  const result = await postOnce("expenses", input);
+  assert.equal(result.response.status, 201);
+  return result.data.id as string;
+}
+test("phase six shared source costs count once before allocation and 400/600 shares conserve 333.33 paid, receipts and history", async () => {
+  const third = await postOnce("gardens", {
+    name: "สวนส่วนกลาง C",
+    openingMinor: 0,
+  });
+  assert.equal(third.response.status, 201);
+  allocationGardens = (await request("gardens")).data.gardens
+    .filter((g: any) => !g.archived)
+    .map((g: any) => g.id)
+    .sort();
+  assert.equal(allocationGardens.length, 3);
+  const before = (await request("gardens")).data;
+  sharedId = await sharedExpense("1000", "333.33", true);
+  const source = await payable(sharedId),
+    summary = (await request("summary")).data;
+  assert.equal(source.gardenId, null);
+  assert.equal(source.gardenName, "ส่วนกลาง");
+  assert.equal(source.pendingMinor, 66667);
+  assert.equal(source.payments.length, 1);
+  assert.equal(summary.netMinor, before.summary.netMinor - 100000);
+  assert.equal(
+    summary.expensePendingMinor,
+    before.summary.expensePendingMinor + 66667,
+  );
+  assert.equal(summary.sharedUnallocatedMinor, 100000);
+  assert.equal(summary.sharedUnallocatedPendingMinor, 66667);
+  assert.deepEqual((await request("gardens")).data.gardens, before.gardens);
+  const detail = (await request("expenses")).data.expenses.find(
+    (e: any) => e.id === sharedId,
+  );
+  assert.ok(detail.receiptId);
+  assert.equal(
+    (await request("receipts/" + detail.receiptId)).response.status,
+    200,
+  );
+  const assigned = await allocate(sharedId, ["400", "600"], 1);
+  assert.equal(assigned.response.status, 200);
+  assert.equal(assigned.data.allocationVersion, 2);
+  assert.deepEqual(
+    assigned.data.allocations.map((a: any) => [
+      a.amountMinor,
+      a.paidMinor,
+      a.pendingMinor,
+    ]),
+    [
+      [40000, 13333, 26667],
+      [60000, 20000, 40000],
+    ],
+  );
+  const after = (await request("gardens")).data;
+  assert.equal(after.summary.netMinor, summary.netMinor);
+  assert.equal(after.summary.expensePendingMinor, summary.expensePendingMinor);
+  assert.equal(after.summary.sharedUnallocatedMinor, 0);
+  assert.equal(after.summary.sharedUnallocatedPendingMinor, 0);
+  for (let i = 0; i < 2; i++) {
+    const prev = before.gardens.find((g: any) => g.id === allocationGardens[i]);
+    const current = after.gardens.find(
+      (g: any) => g.id === allocationGardens[i],
+    );
+    assert.equal(current.netMinor, prev.netMinor - [40000, 60000][i]);
+    assert.equal(
+      current.expensePendingMinor,
+      prev.expensePendingMinor + [26667, 40000][i],
+    );
+    assert.deepEqual((await request("gardens/" + current.id)).data, current);
+  }
+  assert.deepEqual((await payable(sharedId)).payments, source.payments);
+  const listed = (await request("expenses")).data.expenses.find(
+    (e: any) => e.id === sharedId,
+  );
+  assert.equal(listed.receiptId, detail.receiptId);
+  assert.equal(listed.gardenId, null);
+  assert.equal(listed.allocations.length, 2);
+});
+test("phase six later payments and voids derive garden shares; replacing or clearing allocations never changes global net or payment IDs", async () => {
+  const initial = await payable(sharedId),
+    before = (await request("summary")).data;
+  const payment = await pay("expenses/" + sharedId, "100");
+  assert.equal(payment.response.status, 200);
+  assert.equal((await payable(sharedId)).paidMinor, 43333);
+  const key = randomUUID();
+  const pair = await Promise.all([
+    allocate(sharedId, ["250", "750"], 2, key),
+    allocate(sharedId, ["250", "750"], 2, key),
+  ]);
+  assert.deepEqual(pair[0].data, pair[1].data);
+  assert.equal(pair[0].data.allocationVersion, 3);
+  assert.deepEqual(
+    pair[0].data.allocations.map((a: any) => a.paidMinor),
+    [10833, 32500],
+  );
+  assert.equal(
+    (await allocate(sharedId, ["300", "700"], 2)).response.status,
+    409,
+  );
+  assert.equal(
+    (await allocate(sharedId, ["300", "700"], 2, key)).response.status,
+    409,
+  );
+  const source = await payable(sharedId);
+  assert.equal(source.payments.length, 2);
+  assert.equal(source.payments[0].id, initial.payments[0].id);
+  await postOnce("payments/" + payment.data.id + "/void", {
+    reason: "แก้จ่ายส่วนกลาง",
+  });
+  const voided = await payable(sharedId);
+  assert.deepEqual(
+    voided.allocations.map((a: any) => a.paidMinor),
+    [8333, 25000],
+  );
+  assert.equal(voided.pendingMinor, 66667);
+  assert.equal(voided.payments.length, 2);
+  assert.ok(voided.payments[1].voidedAt);
+  const clear = await allocate(sharedId, [], 3);
+  assert.equal(clear.response.status, 200);
+  assert.equal(clear.data.allocationVersion, 4);
+  assert.deepEqual(clear.data.allocations, []);
+  const after = (await request("summary")).data;
+  assert.equal(after.netMinor, before.netMinor);
+  assert.equal(after.expensePendingMinor, before.expensePendingMinor);
+  assert.equal(after.sharedUnallocatedMinor, 100000);
+  assert.deepEqual((await payable(sharedId)).payments, voided.payments);
+  const patchGarden = await request("gardens/" + allocationGardens[0]);
+  const patched = await request(
+    "gardens/" + allocationGardens[0],
+    "PATCH",
+    { name: patchGarden.data.name, expectedVersion: patchGarden.data.version },
+    { "Idempotency-Key": randomUUID() },
+  );
+  assert.equal(patched.data.netMinor, patchGarden.data.netMinor);
+  assert.equal(
+    patched.data.expensePendingMinor,
+    patchGarden.data.expensePendingMinor,
+  );
+});
+test("phase six three one-cent shares keep every derived payment nonnegative, bounded and summing to source after later payments and void", async () => {
+  const id = await sharedExpense("0.03", "0.01");
+  assert.equal(
+    (await allocate(id, ["0.01", "0.01", "0.01"], 1)).response.status,
+    200,
+  );
+  const check = async (paid: number, expected: number[]) => {
+    const e = await payable(id);
+    assert.equal(e.paidMinor, paid);
+    assert.deepEqual(
+      e.allocations.map((a: any) => a.paidMinor),
+      expected,
+    );
+    assert.equal(
+      e.allocations.reduce((s: number, a: any) => s + a.paidMinor, 0),
+      paid,
+    );
+    assert.equal(
+      e.allocations.reduce((s: number, a: any) => s + a.pendingMinor, 0),
+      3 - paid,
+    );
+    for (const a of e.allocations) {
+      assert.ok(a.paidMinor >= 0 && a.paidMinor <= a.amountMinor);
+      assert.ok(a.pendingMinor >= 0);
+    }
+  };
+  await check(1, [0, 1, 0]);
+  const second = await pay("expenses/" + id, "0.01");
+  await check(2, [1, 0, 1]);
+  await pay("expenses/" + id, "0.01");
+  await check(3, [1, 1, 1]);
+  await postOnce("payments/" + second.data.id + "/void", {
+    reason: "แก้หนึ่งสตางค์",
+  });
+  await check(2, [1, 0, 1]);
+  const after = await payable(id);
+  assert.equal(after.payments.length, 3);
+  assert.equal(after.allocations.length, 3);
+});
+test("phase six rejects incomplete, excess, duplicate, non-shared or unauthorized allocation sets; deferred DB constraints prevent partial commits", async () => {
+  const id = await sharedExpense(),
+    before = await payable(id);
+  for (const parts of [
+    ["400", "500"],
+    ["400", "601"],
+    ["0", "1000"],
+    ["NaN", "1000"],
+  ])
+    assert.equal((await allocate(id, parts, 1)).response.status, 422);
+  const payload = {
+    expectedVersion: 1,
+    allocations: [
+      { gardenId: allocationGardens[0], amountBaht: "400" },
+      { gardenId: allocationGardens[0], amountBaht: "600" },
+    ],
+  };
+  assert.equal(
+    (
+      await request(`expenses/${id}/allocations`, "PUT", payload, {
+        "Idempotency-Key": randomUUID(),
+      })
+    ).response.status,
+    422,
+  );
+  assert.equal(
+    (
+      await request(
+        `expenses/${id}/allocations`,
+        "PUT",
+        {
+          expectedVersion: 1,
+          allocations: [{ gardenId: randomUUID(), amountBaht: "1000" }],
+        },
+        { "Idempotency-Key": randomUUID() },
+      )
+    ).response.status,
+    404,
+  );
+  const direct = (await request("payables")).data.payables.find(
+    (e: any) => e.source === "expenses" && e.gardenId,
+  );
+  assert.equal(
+    (await allocate(direct.id, [String(direct.amountMinor / 100)], 1)).response
+      .status,
+    422,
+  );
+  assert.equal(
+    (await allocate(randomUUID(), ["1000"], 1)).response.status,
+    404,
+  );
+  assert.equal(
+    (
+      await request(`expenses/${id}/allocations`, "PUT", payload, {
+        Cookie: "",
+        "Idempotency-Key": randomUUID(),
+      })
+    ).response.status,
+    401,
+  );
+  assert.equal(
+    (
+      await request(`expenses/${id}/allocations`, "PUT", payload, {
+        Origin: "https://other.invalid",
+        "Idempotency-Key": randomUUID(),
+      })
+    ).response.status,
+    403,
+  );
+  assert.deepEqual(await payable(id), before);
+  const client = await pool().connect();
+  try {
+    await client.query("begin");
+    await client.query(
+      "insert into public.expense_allocations(expense_id,owner_id,garden_id,amount_minor) values($1,$2,$3,40000)",
+      [id, ownerId, allocationGardens[0]],
+    );
+    await assert.rejects(client.query("commit"), { code: "23514" });
+    await client.query("rollback");
+    assert.deepEqual((await payable(id)).allocations, []);
+    await assert.rejects(
+      client.query(
+        "insert into public.expense_allocations(expense_id,owner_id,garden_id,amount_minor) values($1,$2,$3,100001)",
+        [id, ownerId, allocationGardens[0]],
+      ),
+      { code: "23514" },
+    );
+    await allocate(id, ["400", "600"], 1);
+    await assert.rejects(
+      client.query(
+        "delete from public.expense_allocations where expense_id=$1 and garden_id=$2",
+        [id, allocationGardens[0]],
+      ),
+      { code: "23514" },
+    );
+    await assert.rejects(
+      client.query("update public.expenses set garden_id=$2 where id=$1", [
+        id,
+        allocationGardens[0],
+      ]),
+      { code: "23514" },
+    );
+    assert.equal((await payable(id)).allocations.length, 2);
+  } finally {
+    await client.query("rollback");
+    client.release();
+  }
+});
+test("phase six allocation audit failure rolls back replaced rows, version and idempotency, then retries exactly once", async () => {
+  const id = await sharedExpense();
+  await allocate(id, ["400", "600"], 1);
+  const snapshot = async () =>
+    (
+      await pool().query(
+        "select (select jsonb_agg(to_jsonb(a) order by expense_id,garden_id) from public.expense_allocations a) allocations,(select jsonb_agg(to_jsonb(e) order by id) from public.expenses e) expenses,(select count(*) from public.audit_events) audit,(select count(*) from private.idempotency_requests) retries,(select count(*) from public.expense_payments) payments",
+      )
+    ).rows[0];
+  const before = await snapshot(),
+    key = randomUUID();
+  await pool().query(
+    "create function private.test_allocation_failure() returns trigger language plpgsql set search_path='' as $$ begin if NEW.action='expense.allocations.replaced' then raise exception 'fixture failure'; end if; return NEW; end $$;create trigger test_allocation_failure before insert on public.audit_events for each row execute function private.test_allocation_failure()",
+  );
+  try {
+    assert.equal(
+      (await allocate(id, ["100", "900"], 2, key)).response.status,
+      500,
+    );
+    assert.deepEqual(await snapshot(), before);
+  } finally {
+    await pool().query(
+      "drop trigger test_allocation_failure on public.audit_events;drop function private.test_allocation_failure()",
+    );
+  }
+  const retry = await allocate(id, ["100", "900"], 2, key);
+  assert.equal(retry.response.status, 200);
+  assert.equal(retry.data.allocationVersion, 3);
+  assert.deepEqual(
+    (await allocate(id, ["100", "900"], 2, key)).data,
+    retry.data,
+  );
+  const after = await snapshot();
+  assert.equal(Number(after.audit), Number(before.audit) + 1);
+  assert.equal(Number(after.retries), Number(before.retries) + 1);
+  assert.equal(after.payments, before.payments);
+});
+test("phase six concurrent replacement and payment preserve total; two stale editors allow one replacement only", async () => {
+  const id = await sharedExpense(),
+    net = (await request("summary")).data.netMinor;
+  const together = await Promise.all([
+    allocate(id, ["400", "600"], 1),
+    pay("expenses/" + id, "333.33"),
+  ]);
+  assert.deepEqual(
+    together.map((r) => r.response.status),
+    [200, 200],
+  );
+  const source = await payable(id);
+  assert.equal(source.payments.length, 1);
+  assert.equal(source.pendingMinor, 66667);
+  assert.deepEqual(
+    source.allocations.map((a: any) => a.paidMinor),
+    [13333, 20000],
+  );
+  const competing = await Promise.all([
+    allocate(id, ["300", "700"], 2),
+    allocate(id, ["200", "800"], 2),
+  ]);
+  assert.deepEqual(competing.map((r) => r.response.status).sort(), [200, 409]);
+  const after = await payable(id);
+  assert.equal(after.allocationVersion, 3);
+  assert.equal(after.payments.length, 1);
+  assert.equal(after.paidMinor, 33333);
+  assert.equal(
+    after.allocations.reduce((s: number, a: any) => s + a.paidMinor, 0),
+    33333,
+  );
+  assert.equal((await request("summary")).data.netMinor, net);
+});
+
 test("Supabase REST RLS denies non-owners and direct writes, but allows owner reads", async () => {
   const owner = await supabase(true).auth.admin.getUserById(ownerId);
   assert.ok(owner.data.user);
@@ -1276,7 +1675,7 @@ test("Supabase REST RLS denies non-owners and direct writes, but allows owner re
   };
   const mine = await fetch(url, { headers });
   assert.equal(mine.status, 200);
-  assert.equal((await mine.json()).length, 3);
+  assert.equal((await mine.json()).length, 4);
   const write = await fetch(url, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
@@ -1308,6 +1707,7 @@ test("Supabase REST RLS denies non-owners and direct writes, but allows owner re
   const saleId = (await pool().query("select id from public.sales limit 1"))
     .rows[0].id;
   for (const table of [
+    "expense_allocations",
     "opening_debts",
     "sale_labor",
     "labor_profiles",
@@ -1335,6 +1735,12 @@ test("Supabase REST RLS denies non-owners and direct writes, but allows owner re
       await pool().query("select id from public.expenses limit 1")
     ).rows[0].id;
     const payloads: Record<string, unknown> = {
+      expense_allocations: {
+        owner_id: ownerId,
+        expense_id: sharedId,
+        garden_id: allocationGardens[0],
+        amount_minor: 100,
+      },
       opening_debts: {
         owner_id: ownerId,
         garden_id: gardenId,
@@ -1389,7 +1795,11 @@ test("Supabase REST RLS denies non-owners and direct writes, but allows owner re
       body: JSON.stringify(payloads[table]),
     });
     assert.equal(insert.status, 403);
-    if (table === "expense_payments" || table === "opening_debts") {
+    if (
+      table === "expense_payments" ||
+      table === "opening_debts" ||
+      table === "expense_allocations"
+    ) {
       for (const method of ["PATCH", "DELETE"]) {
         const deniedWrite: Response = await fetch(endpoint, {
           method,
