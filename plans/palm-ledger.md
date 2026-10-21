@@ -2,7 +2,7 @@
 
 > Source PRD: [สเปก Palm Ledger](../app-spec.md) · [User flow](../user-flow.md)
 >
-> แผนปรับตามคำขอให้เหลือ 10 ขั้น วันที่ 20 ตุลาคม 2569 (Asia/Bangkok) เริ่ม implement ขั้น 1 แล้ว ยังไม่ได้สร้าง issues หรือ deploy
+> แผนปรับตามคำขอให้เหลือ 10 ขั้น วันที่ 20 ตุลาคม 2569 (Asia/Bangkok) อัปเดตสถานะ 21 ตุลาคม 2569: ขั้น 1 deploy บน Vercel และ apply migrations กับ Supabase แล้ว ยังไม่ได้สร้าง issues
 >
 > ใช้แนวทาง [prd-to-plan ของ Matt Pocock](https://github.com/mattpocock/skills/blob/4dd409d177767ca942eddaff5db577b33e549101/prd-to-plan/SKILL.md) รวมช่วงที่เกี่ยวข้องจากร่างเดิม 21 ช่วง โดยเก็บขอบเขตเดิมครบ
 
@@ -33,7 +33,11 @@
 
 ## Phase 1: เข้าสู่ระบบและจัดการสวน
 
-**สถานะ:** implement และตรวจ API/PostgreSQL/Auth/REST/Chromium ในเครื่องแล้ว ยังต้องตรวจ Safari จริงและ hosted integration ดู [วิธีรันและผลตรวจ](../docs/development.md)
+**สถานะ:** implement และตรวจ API/PostgreSQL/Auth/REST/Chromium ในเครื่องแล้ว Vercel รายงาน production deployment เป็น Ready และ migrations ผ่านกับ Supabase ที่เลือก ยังไม่มีบัญชีเจ้าของบน hosted project และยังต้องตรวจ login/flow จริงกับ Safari ดู [วิธีรันและผลตรวจ](../docs/development.md)
+
+**สถานะ deploy ณ 21 ตุลาคม 2569:** [palm-ledger-nine.vercel.app](https://palm-ledger-nine.vercel.app) · Supabase `feotpdylvprtihgklndj` · commit ที่ตรวจ `8f6b7a8` · deployment `dpl_Bk2irnjNtah8JqawnEDTt1MZCyyg` ใช้ Session pooler หลัง direct connection ล้มเหลวด้วย IPv6 `ENETUNREACH` ไม่เก็บ connection string หรือค่าลับใน Git
+
+**งานถัดไป:** สร้างบัญชีเจ้าของผ่านคำสั่งผู้ดูแลและตรวจปิด public signup จากนั้นตรวจ login → เพิ่ม/แก้สวน → reload/logout บนเว็บจริง รวม Safari แล้วเดินขั้น 2: บันทึกขายและแนบรูปบิล ขั้น 2–10 ยังไม่เริ่ม
 
 **User stories:** 1–6, 8, 43–48
 
@@ -49,7 +53,9 @@
 - [x] เพิ่มสองสวนพร้อมยอดยกมา ภาพรวมรวมยอดถูกต้อง รีเฟรชและเปิดจากอุปกรณ์อื่นด้วยบัญชีเจ้าของแล้วเห็นข้อมูลเดียวกัน
 - [x] แก้ชื่อ/ยอดยกมาและเก็บสวนเป็นประวัติได้พร้อม audit ไม่ลบข้อมูลย้อนหลัง
 - [x] จำการเข้าใช้ 30 วันบนเครื่องส่วนตัว ทดสอบ refresh/หมดอายุ/ออกจากระบบได้ และผู้ดูแลตั้งรหัสใหม่แล้ว session เดิมใช้ไม่ได้
-- [ ] migrations สร้างฐานทดสอบใหม่ได้ มี API integration tests และตรวจฟอร์มแรกบน Safari รวม focus/แป้นพิมพ์/reduced motion
+- [x] migrations สร้างฐานทดสอบใหม่ได้ มี API integration tests และ production deployment apply migrations กับ hosted Supabase สำเร็จ
+- [ ] สร้างบัญชีเจ้าของและตรวจ Auth settings, login และจัดการสวนกับ hosted Supabase/Vercel จริง
+- [ ] ตรวจฟอร์มแรกบน Safari รวม focus/แป้นพิมพ์/reduced motion
 
 ---
 
