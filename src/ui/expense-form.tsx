@@ -32,7 +32,13 @@ export type Expense = {
   paidMinor: number;
   pendingMinor: number;
   receiptId: string | null;
-  payments: { id: string; paymentDate: string; amountMinor: number }[];
+  payments: {
+    id: string;
+    paymentDate: string;
+    amountMinor: number;
+    voidedAt: string | null;
+    voidReason: string | null;
+  }[];
 };
 const money = (minor: number) =>
   new Intl.NumberFormat("th-TH", {
@@ -476,7 +482,8 @@ export function ExpenseList({
                   {new Date(p.paymentDate + "T00:00:00").toLocaleDateString(
                     "th-TH",
                   )}{" "}
-                  · {money(p.amountMinor)} บาท
+                  · {money(p.amountMinor)} บาท{" "}
+                  {p.voidedAt ? `· ยกเลิกแล้ว: ${p.voidReason}` : ""}
                 </small>
               ))}
             </div>

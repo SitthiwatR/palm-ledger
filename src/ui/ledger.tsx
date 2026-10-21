@@ -10,6 +10,7 @@ import {
 import icons from "../../assets/icons.json";
 import { PalmLandscape } from "./palm-landscape";
 import { ExpenseForm, ExpenseList, type Expense } from "./expense-form";
+import { Payables, type Payable } from "./payables";
 import { SaleForm } from "./sale-form";
 import { api, message, RequestError } from "./api";
 
@@ -20,6 +21,7 @@ type Garden = {
   netMinor: number;
   laborPendingMinor: number;
   expensePendingMinor: number;
+  openingDebtPendingMinor: number;
   archived: boolean;
   version: number;
 };
@@ -41,6 +43,7 @@ type Sale = {
     quantity: string;
     rateBaht: string;
     amountMinor: number;
+    pendingMinor: number;
   }[];
   receipt: {
     id: string;
@@ -422,6 +425,7 @@ export function Ledger({
   view: "home" | "gardens" | "garden" | "records";
   gardenId?: string;
 }) {
+  const [payables, setPayables] = useState<Payable[]>([]);
   const [expenseModal, setExpenseModal] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const expenseTrigger = useRef<HTMLButtonElement>(null);
@@ -441,12 +445,14 @@ export function Ledger({
       const result = await api("gardens");
       setGardens(result.gardens);
       if (view === "records") {
-        const [ledger, costs] = await Promise.all([
+        const [ledger, costs, debts] = await Promise.all([
           api("sales"),
           api("expenses"),
+          api("payables"),
         ]);
         setSales(ledger.sales);
         setExpenses(costs.expenses);
+        setPayables(debts.payables);
       }
       setError("");
       setReady(true);
@@ -623,6 +629,10 @@ export function Ledger({
               <p>
                 รายจ่ายอื่นค้างจ่าย {baht(selected.expensePendingMinor)} บาท
               </p>
+              <p>
+                หนี้ก่อนเริ่มระบบค้างจ่าย{" "}
+                {baht(selected.openingDebtPendingMinor)} บาท
+              </p>
               <div className="actions">
                 <button className="secondary" onClick={() => open(selected)}>
                   <Icon name="pencil-simple" />
@@ -653,6 +663,14 @@ export function Ledger({
               </button>
             </div>
             <SaleForm gardens={gardens} onSaved={load} />
+            <Payables
+              entries={payables}
+              gardens={gardens}
+              onSaved={async () => {
+                await load();
+                setNotice("บันทึกหนี้และการจ่ายแล้ว");
+              }}
+            />
             <div className="section-heading records-heading">
               <h2>รายจ่ายทั่วไป ค่าแรงรายวัน และปุ๋ย</h2>
             </div>
@@ -718,7 +736,8 @@ export function Ledger({
                           {item.mode === "daily" ? "วัน" : "กก."} ×{" "}
                           {item.rateBaht} บาท/
                           {item.mode === "daily" ? "วัน" : "ตัน"} ={" "}
-                          {baht(item.amountMinor)} บาท · ค้างจ่าย
+                          {baht(item.amountMinor)} บาท · ค้างจ่าย{" "}
+                          {baht(item.pendingMinor)} บาท
                         </small>
                       ))}
                     </div>
@@ -785,6 +804,16 @@ export function Ledger({
                     {baht(
                       gardens.reduce(
                         (sum, g) => sum + g.expensePendingMinor,
+                        0,
+                      ),
+                    )}{" "}
+                    บาท
+                  </p>
+                  <p>
+                    หนี้ก่อนเริ่มระบบค้างจ่าย{" "}
+                    {baht(
+                      gardens.reduce(
+                        (sum, g) => sum + g.openingDebtPendingMinor,
                         0,
                       ),
                     )}{" "}

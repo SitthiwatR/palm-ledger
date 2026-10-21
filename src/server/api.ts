@@ -113,7 +113,8 @@ function garden(row: Record<string, unknown>) {
     name: row.name,
     openingMinor: Number(row.opening_minor),
     netMinor: Number(row.net_minor ?? row.opening_minor),
-    laborPendingMinor: Number(row.labor_minor ?? 0),
+    laborPendingMinor: Number(row.labor_pending_minor ?? 0),
+    openingDebtPendingMinor: Number(row.debt_pending_minor ?? 0),
     expensePendingMinor: Number(row.expense_pending_minor ?? 0),
     archived: row.archived,
     version: row.version,
@@ -121,11 +122,12 @@ function garden(row: Record<string, unknown>) {
 }
 function balanceJoins(ownerParameter: 1 | 2) {
   return `left join (select garden_id,sum(net_minor) net_minor from public.sales where owner_id=$${ownerParameter} group by garden_id) s on s.garden_id=g.id
-    left join (select s.garden_id,sum(l.amount_minor) labor_minor from public.sale_labor l join public.sales s on s.id=l.sale_id and s.owner_id=l.owner_id where l.owner_id=$${ownerParameter} group by s.garden_id) l on l.garden_id=g.id
+    left join (select s.garden_id,sum(l.amount_minor) labor_minor,sum(l.amount_minor-coalesce(p.paid_minor,0)) labor_pending_minor from public.sale_labor l left join (select sale_labor_id,owner_id,sum(amount_minor) paid_minor from public.expense_payments where voided_at is null group by sale_labor_id,owner_id) p on p.sale_labor_id=l.id and p.owner_id=l.owner_id join public.sales s on s.id=l.sale_id and s.owner_id=l.owner_id where l.owner_id=$${ownerParameter} group by s.garden_id) l on l.garden_id=g.id
     left join (select e.garden_id,sum(e.amount_minor) expense_minor,
       sum(e.amount_minor-coalesce(p.paid_minor,0)) expense_pending_minor
-      from public.expenses e left join (select expense_id,owner_id,sum(amount_minor) paid_minor from public.expense_payments group by expense_id,owner_id) p on p.expense_id=e.id and p.owner_id=e.owner_id
-      where e.owner_id=$${ownerParameter} group by e.garden_id) e on e.garden_id=g.id`;
+      from public.expenses e left join (select expense_id,owner_id,sum(amount_minor) paid_minor from public.expense_payments where voided_at is null group by expense_id,owner_id) p on p.expense_id=e.id and p.owner_id=e.owner_id
+      where e.owner_id=$${ownerParameter} group by e.garden_id) e on e.garden_id=g.id
+    left join (select d.garden_id,sum(d.amount_minor-coalesce(p.paid_minor,0)) debt_pending_minor from public.opening_debts d left join (select opening_debt_id,owner_id,sum(amount_minor) paid_minor from public.expense_payments where voided_at is null group by opening_debt_id,owner_id) p on p.opening_debt_id=d.id and p.owner_id=d.owner_id where d.owner_id=$${ownerParameter} group by d.garden_id) d on d.garden_id=g.id`;
 }
 function decimalMinor(value: string) {
   const [whole, fraction = ""] = value.split(".");
@@ -168,6 +170,8 @@ function saleDto(
       ),
       rateBaht: (Number(item.rate_minor) / 100).toFixed(2),
       amountMinor: Number(item.amount_minor),
+      paidMinor: Number(item.paid_minor ?? 0),
+      pendingMinor: Number(item.amount_minor) - Number(item.paid_minor ?? 0),
     })),
     receipt: receipt
       ? {
@@ -710,8 +714,8 @@ async function listExpenses(owner: Owner) {
   const rows = (
     await pool().query(
       `select e.*,to_char(e.expense_date,'YYYY-MM-DD') business_date,g.name garden_name,
-    coalesce((select sum(p.amount_minor) from public.expense_payments p where p.expense_id=e.id and p.owner_id=e.owner_id),0)::text paid_minor,
-    coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'paymentDate',to_char(p.payment_date,'YYYY-MM-DD'),'amountMinor',p.amount_minor) order by p.created_at,p.id) from public.expense_payments p where p.expense_id=e.id and p.owner_id=e.owner_id),'[]'::jsonb) payments,
+    coalesce((select sum(p.amount_minor) from public.expense_payments p where p.expense_id=e.id and p.owner_id=e.owner_id and p.voided_at is null),0)::text paid_minor,
+    coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'paymentDate',to_char(p.payment_date,'YYYY-MM-DD'),'amountMinor',p.amount_minor,'voidedAt',p.voided_at,'voidReason',p.void_reason) order by p.created_at,p.id) from public.expense_payments p where p.expense_id=e.id and p.owner_id=e.owner_id),'[]'::jsonb) payments,
     (select r.id from public.receipt_files r where r.expense_id=e.id and r.owner_id=e.owner_id limit 1) receipt_id
     from public.expenses e join public.gardens g on g.id=e.garden_id and g.owner_id=e.owner_id
     where e.owner_id=$1 order by e.expense_date desc,e.created_at desc limit 200`,
@@ -738,6 +742,245 @@ async function listExpenses(owner: Owner) {
     })),
   });
 }
+// All three debt sources keep their own cost records and share payment history.
+const paymentSources = {
+  expenses: { table: "expenses", column: "expense_id" },
+  "sale-labor": { table: "sale_labor", column: "sale_labor_id" },
+  "opening-debts": { table: "opening_debts", column: "opening_debt_id" },
+} as const;
+type PaymentSource = keyof typeof paymentSources;
+const positiveBaht = z
+  .string()
+  .regex(/^\d{1,11}(?:\.\d{1,2})?$/)
+  .refine(
+    (v) =>
+      /^\d{1,11}(?:\.\d{1,2})?$/.test(v) &&
+      decimalMinor(v) > 0n &&
+      decimalMinor(v) <= 9_000_000_000_000n,
+    "ยอดต้องมากกว่า 0 และไม่เกินขอบเขตที่รองรับ",
+  );
+async function paymentWrite(
+  req: NextRequest,
+  owner: Owner,
+  resource: string,
+  input: unknown,
+  work: (db: PoolClient) => Promise<unknown>,
+) {
+  const key = uuid.parse(req.headers.get("idempotency-key"));
+  const fingerprint = hash(JSON.stringify({ resource, input }));
+  const result = await transaction(async (db) => {
+    await assertOwner(db, owner);
+    await db.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [
+      owner.id + key,
+    ]);
+    const previous = (
+      await db.query(
+        "select request_hash,response from private.idempotency_requests where owner_id=$1 and key=$2",
+        [owner.id, key],
+      )
+    ).rows[0];
+    if (previous) {
+      if (previous.request_hash !== fingerprint)
+        throw new AppError(
+          409,
+          "IDEMPOTENCY_CONFLICT",
+          "รหัสคำขอนี้ใช้กับข้อมูลอื่นแล้ว",
+        );
+      return previous.response;
+    }
+    const response = await work(db);
+    await db.query(
+      "insert into private.idempotency_requests(owner_id,key,request_hash,response) values($1,$2,$3,$4)",
+      [owner.id, key, fingerprint, JSON.stringify(response)],
+    );
+    return response;
+  });
+  return json(result);
+}
+async function openingDebt(req: NextRequest, owner: Owner) {
+  const input = z
+    .object({
+      gardenId: uuid,
+      debtDate: z.iso.date(),
+      payee: z.string().trim().min(1).max(120),
+      note: z.string().trim().max(2000).default(""),
+      amountBaht: positiveBaht,
+    })
+    .strict()
+    .parse(await body(req));
+  return paymentWrite(req, owner, "opening-debts", input, async (db) => {
+    const g = (
+      await db.query(
+        "select id from public.gardens where id=$1 and owner_id=$2 and archived=false for update",
+        [input.gardenId, owner.id],
+      )
+    ).rows[0];
+    if (!g) throw new AppError(404, "GARDEN_NOT_FOUND", "ไม่พบสวนที่ยังใช้งาน");
+    const amount = Number(decimalMinor(input.amountBaht));
+    const row = (
+      await db.query(
+        "insert into public.opening_debts(owner_id,garden_id,debt_date,payee,note,amount_minor) values($1,$2,$3,$4,$5,$6) returning id",
+        [
+          owner.id,
+          input.gardenId,
+          input.debtDate,
+          input.payee,
+          input.note,
+          amount,
+        ],
+      )
+    ).rows[0];
+    await audit(db, owner.id, "opening_debt.created", row.id, null, {
+      ...input,
+      amountMinor: amount,
+    });
+    return {
+      id: row.id,
+      amountMinor: amount,
+      paidMinor: 0,
+      pendingMinor: amount,
+    };
+  });
+}
+async function lockPaymentSource(
+  db: PoolClient,
+  owner: Owner,
+  source: PaymentSource,
+  id: string,
+) {
+  const { table, column } = paymentSources[source];
+  // Identifiers come only from the fixed map, never from request text.
+  const row = (
+    await db.query(
+      `select amount_minor from public.${table} where id=$1 and owner_id=$2 for update`,
+      [id, owner.id],
+    )
+  ).rows[0];
+  if (!row) throw new AppError(404, "NOT_FOUND", "ไม่พบรายการค้างจ่าย");
+  const paid = (
+    await db.query(
+      `select coalesce(sum(amount_minor),0)::text paid from public.expense_payments where ${column}=$1 and owner_id=$2 and voided_at is null`,
+      [id, owner.id],
+    )
+  ).rows[0];
+  return {
+    amountMinor: Number(row.amount_minor),
+    paidMinor: Number(paid.paid),
+  };
+}
+async function addPayment(
+  req: NextRequest,
+  owner: Owner,
+  source: PaymentSource,
+  id: string,
+) {
+  const input = z
+    .object({ paymentDate: z.iso.date(), amountBaht: positiveBaht })
+    .strict()
+    .parse(await body(req));
+  return paymentWrite(
+    req,
+    owner,
+    `${source}/${id}/payments`,
+    input,
+    async (db) => {
+      const totals = await lockPaymentSource(db, owner, source, id);
+      const amount = Number(decimalMinor(input.amountBaht));
+      if (amount > totals.amountMinor - totals.paidMinor)
+        throw new AppError(
+          409,
+          "PAYMENT_EXCEEDS_PENDING",
+          "ยอดจ่ายเกินยอดค้างปัจจุบัน กรุณาโหลดข้อมูลล่าสุด",
+        );
+      const { column } = paymentSources[source];
+      const p = (
+        await db.query(
+          `insert into public.expense_payments(owner_id,${column},payment_date,amount_minor) values($1,$2,$3,$4) returning id`,
+          [owner.id, id, input.paymentDate, amount],
+        )
+      ).rows[0];
+      await audit(db, owner.id, "payment.created", p.id, null, {
+        source,
+        sourceId: id,
+        paymentDate: input.paymentDate,
+        amountMinor: amount,
+      });
+      return {
+        id: p.id,
+        ...totals,
+        paidMinor: totals.paidMinor + amount,
+        pendingMinor: totals.amountMinor - totals.paidMinor - amount,
+      };
+    },
+  );
+}
+async function voidPayment(req: NextRequest, owner: Owner, id: string) {
+  const input = z
+    .object({ reason: z.string().trim().min(1).max(2000) })
+    .strict()
+    .parse(await body(req));
+  return paymentWrite(req, owner, `payments/${id}/void`, input, async (db) => {
+    const original = (
+      await db.query(
+        "select * from public.expense_payments where id=$1 and owner_id=$2",
+        [id, owner.id],
+      )
+    ).rows[0];
+    if (!original) throw new AppError(404, "NOT_FOUND", "ไม่พบการจ่าย");
+    const source: PaymentSource = original.expense_id
+      ? "expenses"
+      : original.sale_labor_id
+        ? "sale-labor"
+        : "opening-debts";
+    const sourceId = original[paymentSources[source].column];
+    const totals = await lockPaymentSource(db, owner, source, sourceId);
+    const before = (
+      await db.query(
+        "select * from public.expense_payments where id=$1 and owner_id=$2 for update",
+        [id, owner.id],
+      )
+    ).rows[0];
+    if (!before.voided_at) {
+      const after = (
+        await db.query(
+          "update public.expense_payments set voided_at=now(),void_reason=$3 where id=$1 and owner_id=$2 returning *",
+          [id, owner.id, input.reason],
+        )
+      ).rows[0];
+      await audit(db, owner.id, "payment.voided", id, before, after);
+    }
+    const paid =
+      totals.paidMinor - (before.voided_at ? 0 : Number(before.amount_minor));
+    return {
+      id,
+      voided: true,
+      amountMinor: totals.amountMinor,
+      paidMinor: paid,
+      pendingMinor: totals.amountMinor - paid,
+    };
+  });
+}
+async function listPayables(owner: Owner) {
+  const rows = (
+    await pool().query(
+      `with sources as (
+    select 'expenses' source,e.id,e.owner_id,e.garden_id,e.expense_date business_date,e.kind,e.payee,e.note,e.amount_minor,null::text invoice_number from public.expenses e where e.owner_id=$1
+    union all select 'sale-labor',l.id,l.owner_id,s.garden_id,s.sale_date,l.mode,l.payee,''::text,l.amount_minor,s.invoice_number from public.sale_labor l join public.sales s on s.id=l.sale_id and s.owner_id=l.owner_id where l.owner_id=$1
+    union all select 'opening-debts',d.id,d.owner_id,d.garden_id,d.debt_date,'opening_debt',d.payee,d.note,d.amount_minor,null::text from public.opening_debts d where d.owner_id=$1
+  ) select s.source,s.id,s.garden_id "gardenId",g.name "gardenName",to_char(s.business_date,'YYYY-MM-DD') "businessDate",s.kind,s.payee,s.note,s.invoice_number "invoiceNumber",s.amount_minor::float8 "amountMinor",
+    coalesce(p.paid,0)::float8 "paidMinor",(s.amount_minor-coalesce(p.paid,0))::float8 "pendingMinor",coalesce(p.payments,'[]'::jsonb) payments
+    from sources s join public.gardens g on g.id=s.garden_id and g.owner_id=s.owner_id
+    left join lateral (select sum(p.amount_minor) filter(where p.voided_at is null) paid,
+      jsonb_agg(jsonb_build_object('id',p.id,'paymentDate',to_char(p.payment_date,'YYYY-MM-DD'),'amountMinor',p.amount_minor,'voidedAt',p.voided_at,'voidReason',p.void_reason) order by p.created_at,p.id) payments
+      from public.expense_payments p where p.owner_id=s.owner_id and
+      ((s.source='expenses' and p.expense_id=s.id) or (s.source='sale-labor' and p.sale_labor_id=s.id) or (s.source='opening-debts' and p.opening_debt_id=s.id))) p on true
+    order by s.business_date desc,s.id`,
+      [owner.id],
+    )
+  ).rows;
+  return json({ payables: rows });
+}
+
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, {
     status,
@@ -867,7 +1110,7 @@ async function writeGarden(req: NextRequest, owner: Owner, id?: string) {
     );
     const balanced = (
       await db.query(
-        `select g.*,g.opening_minor+coalesce(s.net_minor,0)-coalesce(l.labor_minor,0)-coalesce(e.expense_minor,0) net_minor,coalesce(l.labor_minor,0) labor_minor,coalesce(e.expense_pending_minor,0) expense_pending_minor from public.gardens g ${balanceJoins(2)} where g.id=$1 and g.owner_id=$2`,
+        `select g.*,g.opening_minor+coalesce(s.net_minor,0)-coalesce(l.labor_minor,0)-coalesce(e.expense_minor,0) net_minor,coalesce(l.labor_pending_minor,0) labor_pending_minor,coalesce(d.debt_pending_minor,0) debt_pending_minor,coalesce(e.expense_pending_minor,0) expense_pending_minor from public.gardens g ${balanceJoins(2)} where g.id=$1 and g.owner_id=$2`,
         [result.id, owner.id],
       )
     ).rows[0];
@@ -934,19 +1177,20 @@ export async function handle(
     if (route === "summary" && method === "GET") {
       const rows = await pool().query(
         `select coalesce(sum(g.opening_minor + coalesce(s.net_minor,0)-coalesce(l.labor_minor,0)-coalesce(e.expense_minor,0)),0)::text as total,count(*)::int as count,
-         coalesce(sum(l.labor_minor),0)::text labor_minor,coalesce(sum(e.expense_pending_minor),0)::text expense_pending_minor from public.gardens g ${balanceJoins(1)} where g.owner_id=$1`,
+         coalesce(sum(l.labor_pending_minor),0)::text labor_pending_minor,coalesce(sum(d.debt_pending_minor),0)::text debt_pending_minor,coalesce(sum(e.expense_pending_minor),0)::text expense_pending_minor from public.gardens g ${balanceJoins(1)} where g.owner_id=$1`,
         [owner.id],
       );
       return json({
         netMinor: Number(rows.rows[0].total),
         gardenCount: rows.rows[0].count,
-        laborPendingMinor: Number(rows.rows[0].labor_minor),
+        laborPendingMinor: Number(rows.rows[0].labor_pending_minor),
+        openingDebtPendingMinor: Number(rows.rows[0].debt_pending_minor),
         expensePendingMinor: Number(rows.rows[0].expense_pending_minor),
       });
     }
     if (route === "gardens" && method === "GET") {
       const rows = await pool().query(
-        `select g.*,g.opening_minor + coalesce(s.net_minor,0)-coalesce(l.labor_minor,0)-coalesce(e.expense_minor,0) net_minor,coalesce(l.labor_minor,0) labor_minor,coalesce(e.expense_pending_minor,0) expense_pending_minor from public.gardens g
+        `select g.*,g.opening_minor + coalesce(s.net_minor,0)-coalesce(l.labor_minor,0)-coalesce(e.expense_minor,0) net_minor,coalesce(l.labor_pending_minor,0) labor_pending_minor,coalesce(d.debt_pending_minor,0) debt_pending_minor,coalesce(e.expense_pending_minor,0) expense_pending_minor from public.gardens g
          ${balanceJoins(1)}
          where g.owner_id=$1 order by g.archived,g.name,g.id`,
         [owner.id],
@@ -961,7 +1205,7 @@ export async function handle(
       if (method === "GET") {
         const row = (
           await pool().query(
-            `select g.*,g.opening_minor + coalesce(s.net_minor,0)-coalesce(l.labor_minor,0)-coalesce(e.expense_minor,0) net_minor,coalesce(l.labor_minor,0) labor_minor,coalesce(e.expense_pending_minor,0) expense_pending_minor from public.gardens g
+            `select g.*,g.opening_minor + coalesce(s.net_minor,0)-coalesce(l.labor_minor,0)-coalesce(e.expense_minor,0) net_minor,coalesce(l.labor_pending_minor,0) labor_pending_minor,coalesce(d.debt_pending_minor,0) debt_pending_minor,coalesce(e.expense_pending_minor,0) expense_pending_minor from public.gardens g
              ${balanceJoins(2)}
              where g.id=$1 and g.owner_id=$2`,
             [id, owner.id],
@@ -1021,6 +1265,29 @@ export async function handle(
         })),
       });
     }
+    if (route === "opening-debts" && method === "POST")
+      return await openingDebt(req, owner);
+    if (route === "payables" && method === "GET")
+      return await listPayables(owner);
+    if (
+      path.length === 3 &&
+      path[2] === "payments" &&
+      Object.hasOwn(paymentSources, path[0]) &&
+      method === "POST"
+    )
+      return await addPayment(
+        req,
+        owner,
+        path[0] as PaymentSource,
+        uuid.parse(path[1]),
+      );
+    if (
+      path.length === 3 &&
+      path[0] === "payments" &&
+      path[2] === "void" &&
+      method === "POST"
+    )
+      return await voidPayment(req, owner, uuid.parse(path[1]));
     if (route === "expenses" && method === "POST")
       return await saveExpense(req, owner);
     if (route === "expenses" && method === "GET")
@@ -1032,7 +1299,7 @@ export async function handle(
         `select s.*,to_char(s.sale_date,'YYYY-MM-DD') sale_date,g.name garden_name,
         coalesce((select jsonb_agg(jsonb_build_object('description',d.description,'amount_minor',d.amount_minor) order by d.id) from public.sale_deductions d where d.sale_id=s.id and d.owner_id=s.owner_id),'[]'::jsonb) deductions,
         (select jsonb_build_object('id',r.id,'mime_type',r.mime_type,'size_bytes',r.size_bytes,'sha256',r.sha256) from public.receipt_files r where r.sale_id=s.id and r.owner_id=s.owner_id limit 1) receipt,
-        coalesce((select jsonb_agg(to_jsonb(l) order by l.created_at,l.id) from public.sale_labor l where l.sale_id=s.id and l.owner_id=s.owner_id),'[]'::jsonb) labor
+        coalesce((select jsonb_agg(to_jsonb(l) || jsonb_build_object('paid_minor',coalesce((select sum(p.amount_minor) from public.expense_payments p where p.sale_labor_id=l.id and p.owner_id=l.owner_id and p.voided_at is null),0)) order by l.created_at,l.id) from public.sale_labor l where l.sale_id=s.id and l.owner_id=s.owner_id),'[]'::jsonb) labor
         from public.sales s join public.gardens g on g.id=s.garden_id
         where s.owner_id=$1 order by s.sale_date desc,s.created_at desc limit 200`,
         [owner.id],

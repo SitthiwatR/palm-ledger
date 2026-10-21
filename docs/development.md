@@ -1,14 +1,20 @@
 # พัฒนาและทดสอบ Palm Ledger
 
-## สิ่งที่ทำแล้ว
+## สถานะล่าสุด — Phase 5
 
-Phase 3 เพิ่มรายจ่ายทั่วไป ค่าแรงรายวันแยกจากบิล และปุ๋ยที่ใช้จริง พร้อมการจ่ายครั้งแรก/private receipt/ยอดค้างและสุทธิ ดู [handoff Phase 3](handoff-phase3.md) สำหรับ migration, API และผลทดสอบล่าสุด ส่วนการจ่ายภายหลัง/แก้การจ่ายผิดยัง Phase 5 และ OCR/Safari จริงยัง Phase 10
+Phase 5 เพิ่มหนี้ก่อนเริ่มระบบ การจ่ายภายหลังหลายครั้งและยกเลิกการจ่ายผิด โดยใช้ `expense_payments` เดิมร่วมกับ `sale_labor`, `expenses` รวมค่าแรงทีมแยกบิล และ `opening_debts` ใหม่ การจ่าย/void เปลี่ยนเฉพาะค้าง ไม่หักสุทธิซ้ำ ดู [handoff Phase 5](handoff-phase5.md) สำหรับ API, migration, หลักฐานทดสอบและ deployment ล่าสุด ผู้ใช้อนุญาตเดิน Phase 5 โดยไม่ทำ Phase 4 ซ้ำ รอผู้ใช้ตรวจรับ Phase 5
+
+ไม่มีการแก้ OCR หรือทดสอบเขียนบน production งาน extraction/iPhone/Safari จริงยัง Phase 10 และการแก้/ยกเลิกต้นทางยัง Phase 7
+
+## สิ่งที่ทำแล้วในเฟสก่อนหน้า
+
+Phase 3 เพิ่มรายจ่ายทั่วไป ค่าแรงรายวันแยกจากบิล และปุ๋ยที่ใช้จริง พร้อมการจ่ายครั้งแรก/private receipt/ยอดค้างและสุทธิ ดู [handoff Phase 3](handoff-phase3.md) สำหรับ migration, API และผลทดสอบล่าสุด ส่วนการจ่ายภายหลัง/แก้การจ่ายผิดเพิ่มแล้วใน Phase 5 และ OCR/Safari จริงยัง Phase 10
 
 **การรับงาน:** วันที่ 21 ตุลาคม 2569 ผู้ใช้ยืนยันว่าเฟสแรกทดสอบได้ปกติและให้เดินเฟสถัดไป จึงปิดงานพัฒนาเฟส 1 และเริ่มเฟส 2 ในแชทใหม่ตาม [เอกสารส่งต่องาน](handoff-phase2.md) ผลตรวจแยกประเภทด้านล่างยังคงระบุขอบเขตหลักฐานจริง ไม่ถือว่าการรับงานแทนหลักฐาน Safari หรือ hosted Auth settings ทุกข้อ
 
 Next.js หน้าเว็บและ API ในโปรเจกต์เดียว เข้าด้วยชื่อผู้ใช้/รหัสผ่านผ่าน Supabase Auth, session ฝั่งเซิร์ฟเวอร์ 30 วัน, ออกจากระบบ/ผู้ดูแลตั้งรหัสใหม่, เพิ่ม/แก้ชื่อ/แก้ยอดยกมา/เก็บสวนเป็นประวัติ, ยอดรวมทุกสวน, audit, ป้องกันคำขอซ้ำและแท็บเก่าทับข้อมูล
 
-มีรายการขายพร้อมรูปต้นฉบับใน private Storage และเพิ่ม workflow รูปก่อน + OCR ฟรีในเบราว์เซอร์ + ค่าแรงรายวัน/รายน้ำหนักที่ผูกบิลแล้ว ดู [รายละเอียดรอบปรับ workflow](receipt-first-workflow.md) รายจ่ายทั่วไป ปุ๋ย และการจ่ายครั้งแรกทำแล้วใน Phase 3; การจ่ายภายหลังและระบบสำรองยังอยู่ในแผนเฟสถัดไป
+มีรายการขายพร้อมรูปต้นฉบับใน private Storage และเพิ่ม workflow รูปก่อน + OCR ฟรีในเบราว์เซอร์ + ค่าแรงรายวัน/รายน้ำหนักที่ผูกบิลแล้ว ดู [รายละเอียดรอบปรับ workflow](receipt-first-workflow.md) รายจ่ายทั่วไป ปุ๋ย และการจ่ายครั้งแรกทำแล้วใน Phase 3; การจ่ายภายหลังเพิ่มแล้วใน Phase 5; ระบบสำรองยังอยู่ในแผนเฟสถัดไป
 
 ## UI และสวนปาล์ม 3D
 
@@ -165,4 +171,15 @@ node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts
 - `expenses.quantity_milli` คือกิโลกรัม × 1,000 สำหรับ `weight_labor`; `rate_minor` เป็นสตางค์/ตัน ปัดครึ่งขึ้นด้วยตัวหาร 1,000,000 ต่างจากวัน/กระสอบ/รายการที่ใช้ 1,000 ส่วน `sale_labor` ยังเก็บกรัม/จำนวนครึ่งวันเหมือนเดิม
 - Model 4/4; unit/API/CLI 42/42; Chromium production build 8 ผ่าน + 1 ข้าม (private OCR photo ไม่มีในรอบนี้); typecheck, format:check, build และ diff checks ผ่าน
 - ตรวจ UI → API → PostgreSQL/Auth/Storage จริงใน localhost test stack: น้ำหนักจากบิล/ฐานต่างจากบิล, อัตราร่วมและ override, รายจ่ายทีมแยกบิล/การจ่ายครั้งแรก, concurrent retry, rollback พร้อมรูป/profile/audit/idempotency และยอดสุทธิ/ค้างไม่ซ้ำ
-- ยังไม่ใช่ผล Safari/iPhone จริงหรือการรับรอง OCR; ทั้งสองเรื่องอยู่ Phase 10 การจ่ายหนี้ภายหลังยัง Phase 5
+- ยังไม่ใช่ผล Safari/iPhone จริงหรือการรับรอง OCR; ทั้งสองเรื่องอยู่ Phase 10 การจ่ายหนี้ภายหลังเพิ่มแล้วใน Phase 5
+
+## ผลตรวจ Phase 5 — 21 ตุลาคม 2569
+
+- Migration ใหม่ `20261021153814_phase5_debts_and_payments.sql` เพิ่ม `opening_debts` และขยาย `expense_payments` เดิมให้ผูกต้นทางได้หนึ่งแหล่ง พร้อม void reason/time, owner FK/RLS และ trigger คุมค้าง/รักษาประวัติ ไม่แก้ migration เดิมหรือ reset/seed production
+- `/records` มีหนี้เดิม/เลือกเจ้าหนี้และสวน/จ่ายเพิ่ม/ยกเลิกจ่ายผิด ใช้ได้กับค่าแรงผูกบิลและรายจ่ายทุกชนิด รวมทีมแยกบิล ดู [API และกติกายอด](handoff-phase5.md)
+- Model 4/4; unit/API/CLI 48/48 ทั้ง dev และ production build; typecheck/format/build/diff ผ่าน ตรวจ concurrency/idempotency/void/rollback/owner/RLS/audit ด้วย PostgreSQL/Auth/REST/Storage จริงใน isolated test stack เดิม
+- Chromium production build 9 ผ่าน + 1 ข้าม (private OCR photo ไม่ได้ส่งเข้ารอบนี้): เพิ่มหนี้เดิม/failed payment/focus/retry/void/new payment/reload/ประวัติ/สุทธิ, 320 px และ regression UI/Three.js เดิมผ่าน
+- หนี้เดิม 1,000 แยกจากยกมา 5,000; หนี้ 10,000 จ่าย 6,000+4,000 ค้าง 0; จ่ายผิด 5,000 แล้วยกเลิกและลงจริง 500 ค้าง 9,500 โดยไม่หักสุทธิซ้ำ
+- งาน extraction และ Safari/iPhone จริงยัง Phase 10 การแก้/ยกเลิกต้นทางยัง Phase 7 ไม่ถือว่า Phase 5 ผ่านการรับงานจนผู้ใช้ยืนยัน
+
+Deployment ล่าสุดและผลตรวจแบบอ่านอย่างเดียวบน production อยู่ใน [handoff Phase 5](handoff-phase5.md) ต้องตรวจ deployment ของ HEAD ล่าสุดหลัง push เสมอ

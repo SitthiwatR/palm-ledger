@@ -628,6 +628,128 @@ test("Phase 4 team weight expense and linked sale reuse rates with per-record ov
   ).toBe(true);
   expect(errors).toEqual([]);
 });
+test("Phase 5 opening debt, later payments and correction retain history and preserve net after reload", async ({
+  page,
+}) => {
+  test.setTimeout(120000);
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/login");
+  await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+  await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  const g = await page.request.post("/api/v1/gardens", {
+    headers: {
+      Origin: "http://127.0.0.1:3100",
+      "Idempotency-Key": crypto.randomUUID(),
+    },
+    data: { name: "สวน Phase 5", openingMinor: 500000 },
+  });
+  expect(g.status()).toBe(201);
+  const garden = await g.json();
+  await page.goto("/records");
+  const panel = page.getByRole("region", { name: "หนี้และประวัติการจ่าย" });
+  await panel.getByRole("button", { name: "เพิ่มหนี้ก่อนเริ่มระบบ" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByRole("combobox", { name: "สวน", exact: true }),
+  ).toBeFocused();
+  await dialog
+    .getByRole("combobox", { name: "สวน", exact: true })
+    .selectOption(garden.id);
+  await dialog.getByLabel("เจ้าหนี้ / คน / ทีม / ร้าน").fill("ร้านยกมา UI");
+  await dialog.getByLabel("หนี้ค้างเดิม (บาท)").fill("1000");
+  await dialog.getByRole("button", { name: "บันทึกหนี้เดิม" }).click();
+  await expect(dialog).not.toBeVisible();
+  await panel.getByLabel("คน / ทีม / ร้าน").selectOption("ร้านยกมา UI");
+  await expect(panel).toContainText("ค้างปัจจุบันตามที่เลือก 1,000.00 บาท");
+  let summary = await (
+    await page.request.get("/api/v1/gardens/" + garden.id)
+  ).json();
+  expect(summary.netMinor).toBe(500000);
+  expect(summary.openingDebtPendingMinor).toBe(100000);
+  await panel.getByRole("button", { name: "เพิ่มหนี้ก่อนเริ่มระบบ" }).click();
+  await dialog
+    .getByRole("combobox", { name: "สวน", exact: true })
+    .selectOption(garden.id);
+  await dialog.getByLabel("เจ้าหนี้ / คน / ทีม / ร้าน").fill("ทีมแก้จ่าย UI");
+  await dialog.getByLabel("หนี้ค้างเดิม (บาท)").fill("10000");
+  await dialog.getByRole("button", { name: "บันทึกหนี้เดิม" }).click();
+  await expect(dialog).not.toBeVisible();
+  await panel.getByLabel("คน / ทีม / ร้าน").selectOption("ทีมแก้จ่าย UI");
+  await panel
+    .getByRole("button", { name: "บันทึกจ่ายให้ ทีมแก้จ่าย UI" })
+    .click();
+  await dialog.getByLabel("ยอดจ่าย (บาท)").fill("5000");
+  let fail = true;
+  await page.route("**/api/v1/opening-debts/*/payments", async (route) => {
+    if (fail) {
+      fail = false;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: { code: "UNAVAILABLE", message: "ทดสอบเชื่อมต่อขัดข้อง" },
+        }),
+      });
+    } else await route.continue();
+  });
+  await dialog
+    .getByRole("button", { name: "บันทึกการจ่าย", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toBeFocused();
+  await expect(dialog.getByLabel("ยอดจ่าย (บาท)")).toHaveValue("5000");
+  await expect(panel).toContainText("ค้างปัจจุบันตามที่เลือก 10,000.00 บาท");
+  await dialog
+    .getByRole("button", { name: "บันทึกการจ่าย", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  await expect(panel).toContainText("ค้างปัจจุบันตามที่เลือก 5,000.00 บาท");
+  await panel.locator("summary").click();
+  await panel
+    .getByRole("button", { name: "ยกเลิกการจ่าย 5,000.00 บาท" })
+    .click();
+  await expect(dialog.getByLabel("เหตุผลที่ยกเลิก")).toBeFocused();
+  await expect(dialog).toContainText("จะคืนยอดค้างเป็น 10,000.00 บาท");
+  await dialog.getByLabel("เหตุผลที่ยกเลิก").fill("พิมพ์ศูนย์เกิน");
+  await dialog.getByRole("button", { name: "ยืนยันยกเลิกการจ่าย" }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(panel).toContainText("ค้างปัจจุบันตามที่เลือก 10,000.00 บาท");
+  await panel
+    .getByRole("button", { name: "บันทึกจ่ายให้ ทีมแก้จ่าย UI" })
+    .click();
+  await dialog.getByLabel("ยอดจ่าย (บาท)").fill("500");
+  await dialog
+    .getByRole("button", { name: "บันทึกการจ่าย", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  await expect(panel).toContainText("ค้างปัจจุบันตามที่เลือก 9,500.00 บาท");
+  await page.reload();
+  await panel.getByLabel("คน / ทีม / ร้าน").selectOption("ทีมแก้จ่าย UI");
+  await expect(panel).toContainText("ค้างปัจจุบันตามที่เลือก 9,500.00 บาท");
+  await panel.locator("summary").click();
+  await expect(panel).toContainText("พิมพ์ศูนย์เกิน");
+  await expect(panel).toContainText("5,000.00 บาท · ยกเลิกแล้ว");
+  await expect(panel).toContainText("500.00 บาท · มีผล");
+  summary = await (
+    await page.request.get("/api/v1/gardens/" + garden.id)
+  ).json();
+  expect(summary.netMinor).toBe(500000);
+  expect(summary.openingDebtPendingMinor).toBe(1050000);
+  await page.setViewportSize({ width: 320, height: 740 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/phase5-payables-mobile.png",
+    fullPage: true,
+  });
+  expect(errors).toEqual([]);
+});
+
 test("failed saves keep form input, and administrator reset forces a new login", async ({
   page,
 }) => {
