@@ -3,6 +3,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const globalDb = globalThis as unknown as { palmPool?: Pool };
+export async function closePool() {
+  await globalDb.palmPool?.end();
+}
 export function pool() {
   let connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!connectionString)

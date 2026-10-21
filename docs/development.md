@@ -95,6 +95,8 @@ node --env-file=.env.hosted.local --import tsx scripts/owner.ts create palm
 
 เมื่อขึ้น `New password (12+ characters, hidden):` ให้ตั้งรหัสผ่าน 12–128 ตัวอักษรแล้ว Enter ขณะพิมพ์จะไม่แสดงตัวอักษร เมื่อสำเร็จจะขึ้น `Owner updated. No credentials were printed.` คำสั่งนี้สร้างทั้ง Supabase Auth user และ mapping ของ username พร้อม audit จึงไม่ต้องสร้าง user ผ่านหน้า Supabase Auth แยกเอง หากมีเจ้าของแล้วให้ใช้ `reset` แทน `create` โดยระบุ username เดิม
 
+หากสร้างไม่สำเร็จ ให้อัปเดตโค้ดด้วย `git pull` แล้วรันคำสั่งสร้างบัญชีอีกครั้ง เวอร์ชันใหม่แสดง `Owner update failed [ขั้นที่ล้มเหลว]: ...` พร้อมคำแนะนำจาก error code ที่รู้จัก โดยไม่พิมพ์ค่าลับหรือ response ดิบ แยกขั้นตรวจ username/password, configuration, database, Supabase Auth และบันทึก owner ได้ ส่งเฉพาะบรรทัดวินิจฉัยนี้เพื่อช่วยตรวจต่อ ไม่ส่งไฟล์ `.env.hosted.local` หรือรหัสผ่าน หากเป็น database password ให้ตรวจ URI ของ Session pooler และ percent-encode ตัวอักษรพิเศษในรหัสผ่าน หากเป็น admin access ให้ใช้ service_role/secret key ไม่ใช่ anon/publishable key
+
 เปิด <https://palm-ledger-nine.vercel.app/login> แล้วใช้ username และรหัสผ่านที่ตั้ง ไม่ใช่บัญชี GitHub/Vercel/Supabase และไม่ใช่รหัสผ่านฐานข้อมูล ไม่ต้อง redeploy หลังสร้างบัญชี
 
 ทดสอบด้วยสวนที่ระบุชัดว่าเป็นข้อมูลทดสอบ: เพิ่มสองสวนพร้อมยอดยกมา 1,000 และ 2,000 บาท → ยอดรวม 3,000 บาท → reload แล้วข้อมูลยังอยู่ → แก้ชื่อ/ยอดยกมาและเก็บสวนเป็นประวัติ → logout/login อีกครั้ง ทำซ้ำบน Safari/iPhone รวม focus, keyboard และ reduced motion ข้อมูลทดสอบจะอยู่บน hosted database จริงและการเก็บสวนเป็นประวัติไม่ใช่การลบข้อมูล
@@ -112,4 +114,4 @@ node --env-file=.env.hosted.local --import tsx scripts/owner.ts create palm
 
 ## ผลตรวจปัจจุบัน
 
-API integration กับบริการจริงในเครื่องผ่าน 8/8 และ model เดิมผ่าน 4/4; browser Chromium ผ่าน 2/2; TypeScript และ production build ผ่าน ส่วน hosted Supabase migrations และ Vercel production deployment ผ่านแล้วตาม build log ยังไม่ผ่านการตรวจ hosted login/สวนและ Safari/WebKit ผลเหล่านี้รับรองเฉพาะส่วนที่ตรวจของขั้น 1 ไม่ใช่ขั้น 2–10 หรือ production readiness ทั้งระบบ
+API integration กับบริการจริงในเครื่องผ่าน 8/8 และ model เดิมผ่าน 4/4; browser Chromium ผ่าน 2/2; TypeScript และ production build ผ่าน เพิ่ม CLI diagnostic tests 3 กรณีสำหรับ validation/configuration, database connection และการไม่เปิดเผย credentials ใน error ส่วน hosted Supabase migrations และ Vercel production deployment ผ่านแล้วตาม build log ยังไม่ผ่านการตรวจ hosted login/สวนและ Safari/WebKit ผลเหล่านี้รับรองเฉพาะส่วนที่ตรวจของขั้น 1 ไม่ใช่ขั้น 2–10 หรือ production readiness ทั้งระบบ
