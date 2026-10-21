@@ -70,3 +70,9 @@ Production <https://palm-ledger-nine.vercel.app>: `/login` และ `/records` 
 Production build, typecheck, format check และ full Chromium suite **7/7** ผ่าน รวมรูปจริงที่ส่งเข้ามา (private-photo test เปิดใช้งานในรอบนี้) และทดสอบว่าไม่มี POST สร้าง sale ระหว่างอ่านภาพ ทั้ง UI/Three.js เดิมยังผ่าน
 
 `npm test` รอบสุดท้ายผ่าน model **4/4** และ unit/API/CLI **38/38** บน isolated test stack (ในนี้เป็น OCR/image/parser/labor unit 16 ข้อ)
+
+### Deployment รอบแก้ภาพจริง
+
+Feature `17bf75f1ef50bb9f1257ad8c7e2d61e2ea9446fc` push `main` แล้ว Vercel production `dpl_BdQ3ZrAYZz3ttT5JWu7rrDhdiqkt` **READY** โดย metadata ตรง branch/repository/commit Build logs มี `Migrations applied.`, `Owner login: configured`, OCR assets prepared, compiled/build/deployment completed ไม่มี migration ใหม่ในงานแก้ OCR นี้
+
+ตรวจ <https://palm-ledger-nine.vercel.app>: `/login` และ `/records` 200, unauthenticated sales API 401, OCR worker และโมเดลไทย/อังกฤษ 200 ตรวจ JavaScript ที่หน้า records อ้างถึงจริง `/_next/static/immutable/chunks/0hy3-8wjd2ovb.js` พบทั้งตัวปรับภาพ/จัดแนวตารางและการอ่านช่องน้ำหนักซ้ำ เป็นโค้ด OCR รุ่นใหม่แล้ว (ชื่อ chunk ของ Vercel ต่างจาก local build ได้)

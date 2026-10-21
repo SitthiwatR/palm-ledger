@@ -95,6 +95,7 @@
 - [x] รายรับกับค่าแรงค้างจ่ายบันทึกพร้อมกัน; server คำนวณด้วย integer arithmetic ค่าแรงลดสุทธิครั้งเดียวและแสดงค้างจ่าย แยกจากยอดหักบนบิล
 - [x] ทดสอบ transaction rollback, retry/idempotency, RLS, HEIC preview และ form preservation ด้วยบริการจริงใน isolated test stack
 - [x] แก้ OCR บิลตารางจากรูปจริงที่ผู้ใช้แจ้ง: ตัดฉากหลัง/ปรับแสง/จัดแถวตามตำแหน่งคำ และอ่านช่องน้ำหนักสุทธิซ้ำ เทียบราคาและยอดรวมก่อนเติมค่า ทดสอบรูปจริงใน local stack ได้ 1,480 กก. × 8.70 = 12,876 บาท พร้อมวันที่/เลขบิลตรงภาพ ไม่สร้างรายการขายบน production
+- [x] OCR fix `17bf75f` push `main` และ Vercel `dpl_BdQ3ZrAYZz3ttT5JWu7rrDhdiqkt` READY ตรวจ build/migration logs และ JavaScript ที่เว็บจริงเสิร์ฟแล้ว; browser 7/7, model 4/4, unit/API/CLI 38/38 ผ่าน
 - [ ] เป้าหมายจบใน 1 นาที: browser automation เดิมกับบิลสังเคราะห์ประมาณ 4.7–7.1 วินาที; รอบแก้อ่านรูปจริงถึงหน้ารีวิวประมาณ 15–22 วินาที ยังต้องตรวจเวลาจบทั้ง flow ของผู้ใช้บน iPhone/Safari
 - [x] Feature `3fc6e19` push `main` แล้ว; Vercel production `dpl_DspeWgS4c7Pzayqqso8rzdBaipFH` READY พร้อม migration/build logs ผ่าน ตรวจ production SQL metadata, RLS และ HTTP/OCR assets แล้ว โดยไม่สร้างข้อมูลทดสอบบน production
 
