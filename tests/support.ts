@@ -30,7 +30,7 @@ export const password = randomBytes(18).toString("base64url");
 export const username = "เจ้าของสวน";
 export const origin = testEnv.APP_URL;
 export async function prepare() {
-  await migrate();
+  await Promise.all([migrate(), migrate()]); // Concurrent deploys serialize safely.
   await migrate(); // Repeatability must preserve the already applied schema.
   await pool().query(
     "truncate private.owner_sessions, private.login_attempts, private.idempotency_requests,public.audit_events,public.gardens,public.owner_accounts cascade",
@@ -52,7 +52,14 @@ export async function startApp(): Promise<ChildProcess> {
       "3100",
     ],
     {
-      env: { ...process.env, ...testEnv, NEXT_TELEMETRY_DISABLED: "1" },
+      env: {
+        ...process.env,
+        ...testEnv,
+        NEXT_TELEMETRY_DISABLED: "1",
+        ...(process.env.TEST_USE_POSTGRES_URL === "1"
+          ? { DATABASE_URL: "", POSTGRES_URL: testEnv.DATABASE_URL }
+          : {}),
+      },
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
     },

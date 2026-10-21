@@ -91,7 +91,11 @@ execFileSync(
   ],
   {
     stdio: "inherit",
-    env: { ...process.env, ...(test ? { LOCAL_JWT_EXP: "45" } : {}) },
+    env: {
+      ...process.env,
+      ...values,
+      ...(test ? { LOCAL_JWT_EXP: "45" } : {}),
+    },
   },
 );
 for (let attempt = 0; attempt < 60; attempt++) {

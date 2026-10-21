@@ -5,7 +5,9 @@ import { pool } from "../src/server/db";
 export async function migrate() {
   const db = await pool().connect();
   try {
-    await db.query("select pg_advisory_lock(1926020)");
+    await db.query("begin");
+    // Transaction-scoped locks also work through Supabase's transaction pooler.
+    await db.query("select pg_advisory_xact_lock(1926020)");
     await db.query("create schema if not exists private");
     await db.query(
       "create table if not exists private.schema_migrations(name text primary key, checksum text not null, applied_at timestamptz not null default now())",
@@ -27,36 +29,33 @@ export async function migrate() {
           throw new Error("Applied migration changed: " + file);
         continue;
       }
-      // Migration SQL contains its own transaction; record its checksum atomically.
+      // The entire migration run and its version records share one transaction.
       const executable = sql
         .trim()
         .replace(/^begin;/i, "")
         .replace(/commit;$/i, "");
-      await db.query("begin");
-      try {
-        await db.query(executable);
-        await db.query(
-          "insert into private.schema_migrations(name,checksum) values ($1,$2)",
-          [file, checksum],
-        );
-        await db.query("commit");
-      } catch (error) {
-        await db.query("rollback");
-        throw error;
-      }
+      await db.query(executable);
+      await db.query(
+        "insert into private.schema_migrations(name,checksum) values ($1,$2)",
+        [file, checksum],
+      );
     }
     await db.query("notify pgrst, 'reload schema'");
+    await db.query("commit");
+  } catch (error) {
+    await db.query("rollback");
+    throw error;
   } finally {
-    await db.query("select pg_advisory_unlock(1926020)");
     db.release();
   }
 }
 if (process.argv[1]?.endsWith("migrate.ts")) {
   migrate()
     .then(() => console.log("Migrations applied."))
-    .catch(() => {
+    .catch((error) => {
       console.error(
         "Migration failed; inspect migration and database readiness.",
+        { name: error?.name, code: error?.code },
       );
       process.exitCode = 1;
     })
