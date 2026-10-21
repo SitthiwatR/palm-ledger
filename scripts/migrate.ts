@@ -51,7 +51,16 @@ export async function migrate() {
 }
 if (process.argv[1]?.endsWith("migrate.ts")) {
   migrate()
-    .then(() => console.log("Migrations applied."))
+    .then(async () => {
+      console.log("Migrations applied.");
+      const result = await pool().query(
+        "select exists(select 1 from public.owner_accounts) as configured",
+      );
+      console.log(
+        "Owner login:",
+        result.rows[0].configured ? "configured" : "not configured yet",
+      );
+    })
     .catch((error) => {
       console.error(
         "Migration failed; inspect migration and database readiness.",

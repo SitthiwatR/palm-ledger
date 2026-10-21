@@ -84,6 +84,7 @@ TEST_WEBKIT=1 npm run test:browser
 - ใช้ PostgreSQL connection/pooler ที่รองรับ transaction จริงและ TLS verification ตามผู้ให้บริการ ไม่ปิดการตรวจ certificate
 - หากใช้ Supabase integration ของ Vercel แอพอ่าน `POSTGRES_URL` ได้เมื่อไม่มี `DATABASE_URL` จึงใช้ connection ที่ integration จัดให้โดยไม่ต้องคัดลอก Secret ออกมา
 - สำหรับการ deploy นี้ ใช้ Build Command `npm run deploy:build` เพื่อรัน migrations ก่อน build โดยอ่าน environment ของ Vercel ตรง ๆ ตัว runner ใช้ transaction-scoped advisory lock และ checksum ป้องกัน deploy พร้อมกัน/รันซ้ำ ส่วน `npm run build` ปกติยังไม่แก้ฐานข้อมูล หาก migration ไม่ผ่าน deployment ต้องหยุดก่อนปล่อยแอพ
+- `deploy:build` เตรียม CA จาก HTTPS download ที่ Supabase Studio ระบุอย่างเป็นทางการ ตรวจว่าเป็น CA ที่ยังไม่หมดอายุ และ bundle ไฟล์ public certificate เข้า server function จากนั้นใช้ TLS ที่ตรวจทั้ง chain และ hostname โดยไม่ปิด verification; ตั้ง `DATABASE_CA_CERT` เป็น PEM ที่ดาวน์โหลดจาก Supabase Database Settings ได้หากต้องการระบุ CA เอง การดาวน์โหลดหรือการตรวจ certificate ล้มเหลวจะหยุด deployment
 - ใช้ encryption key สุ่ม 32 bytes แบบ hexadecimal สำหรับ token ที่เข้ารหัสในตาราง session การเปลี่ยน key ต้องยกเลิก session เดิมและให้เข้าใหม่
 - ปิด public signup ใน Supabase Auth จริงด้วย และเตรียม owner ผ่านคำสั่งผู้ดูแลหลัง migrations ตรวจ RLS/สิทธิ์และ Auth settings อีกครั้งกับโปรเจกต์ที่เลือก
 - ตรวจโควตา สิทธิ์ใช้แพ็กเกจฟรีกับงานสวน และความเข้ากันได้ของ Next.js/runtime ก่อน deploy ขั้นนี้ยังไม่ได้ publish ขึ้น Vercel หรือให้สัญญาว่า hosted production ฟรีครบทุกส่วน
