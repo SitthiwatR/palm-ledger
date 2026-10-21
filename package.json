@@ -23,12 +23,14 @@
     "node": ">=24 <25"
   },
   "dependencies": {
+    "@fontsource/noto-sans-thai": "5.3.0",
     "@supabase/supabase-js": "2.118.0",
     "next": "16.4.2",
     "pg": "8.23.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "server-only": "0.0.1",
+    "three": "0.186.1",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -37,6 +39,7 @@
     "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "@types/three": "0.186.0",
     "prettier": "3.9.10",
     "tsx": "4.23.15",
     "typescript": "7.0.2"

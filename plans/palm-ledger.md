@@ -33,11 +33,11 @@
 
 ## Phase 1: เข้าสู่ระบบและจัดการสวน
 
-**สถานะ:** implement และตรวจ API/PostgreSQL/Auth/REST/Chromium ในเครื่องแล้ว Vercel รายงาน production deployment เป็น Ready และ migrations ผ่านกับ Supabase ที่เลือก ยังไม่มีบัญชีเจ้าของบน hosted project และยังต้องตรวจ login/flow จริงกับ Safari ดู [วิธีรันและผลตรวจ](../docs/development.md)
+**สถานะ:** implement และตรวจ API/PostgreSQL/Auth/REST/Chromium ในเครื่องแล้ว Vercel production deployment และ migrations ผ่าน ผู้ใช้ยืนยันสร้างบัญชีเจ้าของและ login บน hosted project สำเร็จแล้ว ปรับ UI เขียว–ครีม/เมนูมือถือและ desktop พร้อมฉากสวน Three.js ที่หยุดตาม Reduce Motion และมีภาพสำรองเมื่อ GPU ใช้ไม่ได้ ยังต้องตรวจ flow จริงครบชุดกับ Safari ดู [วิธีรันและผลตรวจ](../docs/development.md)
 
 **สถานะ deploy ณ 21 ตุลาคม 2569:** [palm-ledger-nine.vercel.app](https://palm-ledger-nine.vercel.app) · Supabase `feotpdylvprtihgklndj` · commit ที่ตรวจ `8f6b7a8` · deployment `dpl_Bk2irnjNtah8JqawnEDTt1MZCyyg` ใช้ Session pooler หลัง direct connection ล้มเหลวด้วย IPv6 `ENETUNREACH` ไม่เก็บ connection string หรือค่าลับใน Git
 
-**งานถัดไป:** สร้างบัญชีเจ้าของผ่านคำสั่งผู้ดูแลและตรวจปิด public signup จากนั้นตรวจ login → เพิ่ม/แก้สวน → reload/logout บนเว็บจริง รวม Safari แล้วเดินขั้น 2: บันทึกขายและแนบรูปบิล ขั้น 2–10 ยังไม่เริ่ม
+**งานถัดไป:** ตรวจปิด public signup และ flow เพิ่ม/แก้สวน → reload/logout บนเว็บจริง รวม Safari แล้วเดินขั้น 2: บันทึกขายและแนบรูปบิล ขั้น 2–10 ยังไม่เริ่ม การสร้างบัญชี/login ผ่านแล้วตามผลที่ผู้ใช้ยืนยัน
 
 **User stories:** 1–6, 8, 43–48
 

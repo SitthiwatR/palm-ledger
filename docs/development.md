@@ -6,6 +6,14 @@ Next.js หน้าเว็บและ API ในโปรเจกต์เ�
 
 ยังไม่มีรายการขาย/รายจ่าย รูปบิล OCR หรือระบบสำรองตามขั้นถัดไป ต้นแบบเดิมเป็นไฟล์แยก ไม่ใช่ frontend ของระบบฐานข้อมูลใหม่นี้
 
+## UI และสวนปาล์ม 3D
+
+หน้า login/ภาพรวมใช้โทนเขียว–ครีม, Noto Sans Thai ที่เสิร์ฟจากแอพเอง, ปุ่มแสดง/ซ่อนรหัสผ่าน, ยอดเงิน/จำนวนสวนจริง และเมนู sidebar บน desktop หรือเมนูด้านล่างบนมือถือ ไม่เพิ่มยอดหรือกราฟตัวอย่างเข้าข้อมูลจริง
+
+`src/ui/palm-landscape.tsx` แสดงภาพ SVG ก่อน แล้วโหลด `palm-scene.ts`/Three.js แยกเมื่อเห็นพื้นที่ภาพ ฉากสร้างด้วย geometry ในโค้ด ไม่มี asset ภายนอก จำกัด pixel ratio 1.6 และ render ไม่เกิน 30 fps หยุด animation เมื่อซ่อน tab, ออกนอก viewport หรือเปิด Reduce Motion; ใช้ภาพนิ่ง SVG หาก WebGL/chunk ใช้ไม่ได้ และกลับไปแสดง SVG เมื่อ context สูญหาย พร้อม dispose GPU resources เมื่อออกจากหน้า ใบอนุญาต Three.js/Noto Sans Thai อยู่ใน `public/licenses`
+
+Chromium browser suite เพิ่มการตรวจฉาก WebGL จริง, ภาพหยุดนิ่งเมื่อ Reduce Motion, แสดง/ซ่อนรหัสผ่านโดยค่าคงเดิม, ฟอร์มยังใช้ได้หลังสูญเสีย WebGL และ overflow ที่ 320 px พร้อม screenshot หน้า login/ภาพรวมที่ 390/1440 px ภาพตัวอย่างอยู่ที่ [login desktop](ui-login-desktop.png) และ [ภาพรวม mobile](ui-overview-mobile.png) ใช้ข้อมูลสวนจาก test fixtures เท่านั้น ใช้ SwiftShader เฉพาะใน browser ทดสอบบน cloud; ยังต้องตรวจ Safari/iPhone และประสิทธิภาพบนเครื่องจริงแยก
+
 ## เริ่มพัฒนาในเครื่อง
 
 ต้องมี Node.js 24 LTS, Docker daemon และ Docker Compose ใช้ checkout นี้ได้เลย ไม่ต้องสร้าง worktree เพิ่ม
@@ -80,7 +88,7 @@ TEST_WEBKIT=1 npm run test:browser
 
 ตัวแปรของแอพถูกตั้งใน Vercel **Project Settings → Environment Variables → Production** แล้ว ไม่ใช่ระดับ account/team ค่า `DATABASE_URL` ใช้ Session pooler หลัง direct connection ล้มเหลวด้วย IPv6 `ENETUNREACH`; `DATABASE_URL` มีลำดับก่อน `POSTGRES_URL` จึงต้องชี้ Supabase project ที่เลือกให้ตรงกัน
 
-Build log ระบุ `Owner login: not configured yet` จึงยังต้องสร้างบัญชีเจ้าของด้วยคำสั่งผู้ดูแลหลังตั้ง environment สำหรับ hosted project อย่างปลอดภัย และตรวจปิด public signup ห้ามนำบัญชีจาก local tests มาใช้จริง ยังไม่ได้ตรวจ login/สวนผ่านเว็บจริง เพราะ network policy ของ cloud นี้ยังไม่อนุญาตโดเมนเว็บและ Supabase project ใหม่ (มี configuration draft รอ publish)
+Build log แรกระบุ `Owner login: not configured yet` ต่อมาผู้ใช้สร้างบัญชีด้วยคำสั่งผู้ดูแลและยืนยัน login บนเว็บจริงสำเร็จแล้ว ยังต้องตรวจปิด public signup และ flow สวนครบชุดบนเว็บจริง ห้ามนำบัญชีจาก local tests มาใช้จริง ฝั่ง cloud นี้ยังตรวจเว็บโดยตรงไม่ได้เพราะ network policy ยังไม่อนุญาตโดเมนเว็บและ Supabase project ใหม่ (มี configuration draft รอ publish)
 
 ### สร้างบัญชีสำหรับ login เว็บจริงครั้งแรก
 
@@ -138,4 +146,4 @@ node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts
 
 ## ผลตรวจปัจจุบัน
 
-API integration กับบริการจริงในเครื่องผ่าน 8/8 และ model เดิมผ่าน 4/4; browser Chromium ผ่าน 2/2; TypeScript และ production build ผ่าน CLI diagnostic tests 6 กรณีครอบคลุม validation/configuration, connection refused, read-only check, การปิดบัง credentials/nested errors และ timeout จริงที่ไม่มี error code ส่วน hosted Supabase migrations และ Vercel production deployment ผ่านแล้วตาม build log ยังไม่ผ่านการตรวจ hosted login/สวนและ Safari/WebKit ผลเหล่านี้รับรองเฉพาะส่วนที่ตรวจของขั้น 1 ไม่ใช่ขั้น 2–10 หรือ production readiness ทั้งระบบ
+API integration กับบริการจริงในเครื่องผ่าน 8/8 และ model เดิมผ่าน 4/4; browser Chromium ของ production build ผ่าน 4/4; TypeScript และ production build ผ่าน CLI diagnostic tests 6 กรณีครอบคลุม validation/configuration, connection refused, read-only check, การปิดบัง credentials/nested errors และ timeout จริงที่ไม่มี error code ส่วน hosted Supabase migrations และ Vercel production deployment ผ่านแล้วตาม build log ผู้ใช้ยืนยัน hosted login ผ่านแล้ว ส่วน hosted flow สวนครบชุดและ Safari/WebKit ยังไม่ผ่านการตรวจ ผลเหล่านี้รับรองเฉพาะส่วนที่ตรวจของขั้น 1 ไม่ใช่ขั้น 2–10 หรือ production readiness ทั้งระบบ
