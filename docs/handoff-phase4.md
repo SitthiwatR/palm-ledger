@@ -43,7 +43,11 @@ Production <https://palm-ledger-nine.vercel.app> · Supabase `feotpdylvprtihgkln
 
 Vercel project `prj_ZCEDsQNX4Kt2Xgj6IPdqI9ip9LT6`, team `team_PnTYWZ1rB5hOoQSGOZwv0aFW`; GitHub `main` เป็น production branch การ push เรียก `deploy:build` apply migration ก่อน build
 
-ก่อนเริ่ม Phase 4 ตรวจ HEAD `8160f1c` มี deployment `dpl_37yviPjKC4mfNysPmjNSUJGFz74E` READY แล้ว ผล deployment ของงานนี้ตรวจหลัง push และบันทึกเพิ่มเติมเมื่อสำเร็จ
+Code `5c81bf1cd6dc06a9472dcced1fc90c234b9f613e` push `main` แล้ว; production deployment [`dpl_913qDxYEvm5KwZNZyUgLLiEscZSY`](https://vercel.com/self-ade5/palm-ledger/913qDxYEvm5KwZNZyUgLLiEscZSY) **READY** พร้อม repository/branch/SHA ตรงและ alias เว็บจริง Build logs มี `Migrations applied.`, `Owner login: configured`, `Compiled successfully` และ `Deployment completed` (build output ประมาณ 15 วินาที)
+
+ตรวจ production แบบอ่านอย่างเดียว: `/login` และ `/records` → 200, unauthenticated `/api/v1/expenses` → 401; error/fatal scan ของ deployment นี้ช่วง 10 นาทีที่ตรวจไม่พบแถว log ไม่ใช่การรับรอง monitoring ระยะยาว ไม่มีการแก้ env/reset บัญชีหรือสร้างข้อมูล/รูปทดสอบบน production
+
+เอกสารผล deploy อยู่ใน commit ถัดจาก code ข้างต้น ให้ตรวจ deployment ของ HEAD ล่าสุดหลัง push เสมอ
 
 ห้าม reset/truncate/seed production หรือทดสอบสร้างรายการ/รูป/การจ่ายบน production คงบัญชี sessions credentials/encryption key และ TLS verification เดิม ไม่เปลี่ยน UI เขียว–ครีม/Three.js และไม่แก้ OCR ในงานนี้
 
