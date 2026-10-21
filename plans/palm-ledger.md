@@ -66,7 +66,7 @@
 
 ## Phase 2: บันทึกขายและแนบรูปบิล
 
-**สถานะ:** Implement และทดสอบผ่านใน isolated local stack; commit/push และตรวจ Vercel deployment อยู่ในขั้นตอนปิดงาน อ่าน [เอกสารส่งต่องาน](../docs/handoff-phase2.md) สำหรับรายละเอียดผล
+**สถานะ:** Implement และทดสอบผ่านใน isolated local stack; push แล้วใน `bb0fad8`. ยังยืนยัน Vercel deployment ไม่ได้ (production `/records` ตอบ 404 และ Vercel API ปฏิเสธสิทธิ์ทีม) อ่าน [เอกสารส่งต่องาน](../docs/handoff-phase2.md) สำหรับรายละเอียดผล
 
 **User stories:** 10–16, 39, 43
 
