@@ -103,6 +103,16 @@ node --env-file=.env.hosted.local --import tsx scripts/owner.ts check
 
 คำสั่งตรวจ connection และตาราง owner เมื่อเกิด connection error จะแสดง `Database details:` ที่ปิดบัง connection URLs, credentials ใน environment, รหัสฐานข้อมูลที่ decode แล้ว และรหัสผ่านที่พิมพ์ โดยไม่แสดง stack/response ดิบ พร้อมตาม nested error เพื่อช่วยตรวจ timeout หรือ AggregateError ส่งเฉพาะข้อความวินิจฉัยนี้เพื่อช่วยตรวจต่อ ไม่ส่งไฟล์ `.env.hosted.local` หรือรหัสผ่าน หากเป็น database password ให้ตรวจ URI ของ Session pooler และ percent-encode ตัวอักษรพิเศษในรหัสผ่าน หากเป็น admin access ให้ใช้ service_role/secret key ไม่ใช่ anon/publishable key
 
+หาก `Test-NetConnection` บน Windows ผ่าน แต่คำสั่งยัง timeout ให้ใช้ตัวตรวจแยก protocol:
+
+```sh
+node --env-file=.env.hosted.local --import tsx scripts/check-database-network.ts
+```
+
+แสดง hostname/port และผลว่า pooler username ตรง Supabase project หรือไม่โดยไม่แสดง username/password จากนั้นตรวจ TCP → PostgreSQL SSL negotiation → TLS ที่ตรวจ CA/hostname จริง → authentication/query แบบอ่านอย่างเดียว ช่วง probe ไม่ส่ง credentials และไม่ยอม downgrade เป็น plaintext ขั้น authentication ให้เวลาเชื่อมต่อ 30 วินาทีเพื่อแยกกรณีช้ากว่าค่า 5 วินาทีของแอพ ใช้ไฟล์ CA ที่เตรียมไว้เดิม หากหยุดก่อน TLS ผ่าน ให้ตรวจเส้นทางเครือข่าย/endpoint ตามขั้นที่รายงาน หาก TLS ผ่านแต่ query ล้มเหลว ให้ตรวจ project/username/password และสถานะ pooler หาก probe ผ่านทุกขั้นแต่คำสั่งสร้าง owner ยัง timeout ต้องปรับ connection timeout สำหรับงานผู้ดูแลตามผลตรวจ ไม่สรุปว่าเป็นรหัสผ่านผิดจาก TCP timeout เพียงอย่างเดียว
+
+ตัว probe มี tests แยก 3 กรณีสำหรับ SSL negotiation ที่ค้าง, server ไม่รับ TLS และ TLS handshake ล้มเหลว ตรวจเพิ่มเติมในเครื่องด้วย certificate ชั่วคราวแล้วว่าผ่านเมื่อระบุ CA ที่ถูกต้อง และปฏิเสธ certificate เดิมเมื่อไม่มี CA ที่เชื่อถือ ผลนี้ไม่ใช่ผลตรวจเครือข่ายบน Windows ของผู้ใช้
+
 เปิด <https://palm-ledger-nine.vercel.app/login> แล้วใช้ username และรหัสผ่านที่ตั้ง ไม่ใช่บัญชี GitHub/Vercel/Supabase และไม่ใช่รหัสผ่านฐานข้อมูล ไม่ต้อง redeploy หลังสร้างบัญชี
 
 ทดสอบด้วยสวนที่ระบุชัดว่าเป็นข้อมูลทดสอบ: เพิ่มสองสวนพร้อมยอดยกมา 1,000 และ 2,000 บาท → ยอดรวม 3,000 บาท → reload แล้วข้อมูลยังอยู่ → แก้ชื่อ/ยอดยกมาและเก็บสวนเป็นประวัติ → logout/login อีกครั้ง ทำซ้ำบน Safari/iPhone รวม focus, keyboard และ reduced motion ข้อมูลทดสอบจะอยู่บน hosted database จริงและการเก็บสวนเป็นประวัติไม่ใช่การลบข้อมูล
