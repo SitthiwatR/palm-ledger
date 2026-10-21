@@ -113,6 +113,14 @@ node --env-file=.env.hosted.local --import tsx scripts/check-database-network.ts
 
 ตัว probe มี tests แยก 3 กรณีสำหรับ SSL negotiation ที่ค้าง, server ไม่รับ TLS และ TLS handshake ล้มเหลว ตรวจเพิ่มเติมในเครื่องด้วย certificate ชั่วคราวแล้วว่าผ่านเมื่อระบุ CA ที่ถูกต้อง และปฏิเสธ certificate เดิมเมื่อไม่มี CA ที่เชื่อถือ ผลนี้ไม่ใช่ผลตรวจเครือข่ายบน Windows ของผู้ใช้
 
+หากผ่านฐานข้อมูลแล้วแต่สร้าง owner ติด Supabase Auth 401/403 ให้ตรวจสิทธิ์ admin แบบอ่านอย่างเดียว:
+
+```sh
+node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts
+```
+
+ตัวตรวจรายงานประเภท key, ช่องว่างหัวท้าย, JWT role/project/expiry เฉพาะ metadata ที่ไม่ใช่ค่าลับ (claims ยังไม่ได้ตรวจลายเซ็น) และว่าค่าที่ process ใช้ตรงกับไฟล์ที่เลือกหรือไม่ Node ให้ inherited environment มาก่อน `--env-file` หากไม่ตรง ให้ลบเฉพาะตัวแปรที่ชนกันใน PowerShell เช่น `Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY -ErrorAction SilentlyContinue` แล้วรันใหม่ ตัวตรวจเรียกเฉพาะ admin list-users เพื่อยืนยันสิทธิ์ ไม่สร้าง/แก้ user ไม่พิมพ์รายชื่อผู้ใช้หรือ key หากถูกปฏิเสธจะแสดง HTTP status/code/message ที่ปิดบังค่าลับ เพื่อแยก key ผิดโปรเจกต์/หมดอายุ/ถูกยกเลิก สิทธิ์ไม่พอ และข้อผิดพลาด gateway ห้ามสรุปว่าผู้ใช้คัดลอก key ผิดจาก status อย่างเดียว หาก admin check ผ่านแต่ create ยังไม่ผ่าน ให้ใช้ `Auth details:` ที่คำสั่ง create แสดงเพื่อตรวจ policy ของการสร้างบัญชีต่อ
+
 เปิด <https://palm-ledger-nine.vercel.app/login> แล้วใช้ username และรหัสผ่านที่ตั้ง ไม่ใช่บัญชี GitHub/Vercel/Supabase และไม่ใช่รหัสผ่านฐานข้อมูล ไม่ต้อง redeploy หลังสร้างบัญชี
 
 ทดสอบด้วยสวนที่ระบุชัดว่าเป็นข้อมูลทดสอบ: เพิ่มสองสวนพร้อมยอดยกมา 1,000 และ 2,000 บาท → ยอดรวม 3,000 บาท → reload แล้วข้อมูลยังอยู่ → แก้ชื่อ/ยอดยกมาและเก็บสวนเป็นประวัติ → logout/login อีกครั้ง ทำซ้ำบน Safari/iPhone รวม focus, keyboard และ reduced motion ข้อมูลทดสอบจะอยู่บน hosted database จริงและการเก็บสวนเป็นประวัติไม่ใช่การลบข้อมูล

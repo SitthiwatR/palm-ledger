@@ -1,4 +1,4 @@
-/** Describe connection failures without logging URLs, passwords or error stacks. */
+/** Describe service failures without logging URLs, passwords or error stacks. */
 export function databaseErrorDetails(
   error: unknown,
   hiddenValues: string[] = [],
@@ -48,10 +48,22 @@ export function databaseErrorDetails(
       return;
     seen.add(value);
     const fields: Record<string, string> = {};
-    for (const key of ["name", "code", "message", "syscall"] as const) {
+    for (const key of [
+      "name",
+      "code",
+      "status",
+      "message",
+      "syscall",
+    ] as const) {
       if (key in value) {
         const field = (value as Record<string, unknown>)[key];
         if (typeof field === "string") fields[key] = redact(field);
+        else if (
+          key === "status" &&
+          typeof field === "number" &&
+          Number.isFinite(field)
+        )
+          fields[key] = String(field);
       }
     }
     details.push(fields);

@@ -81,7 +81,7 @@ test("provider diagnostics explain rejected admin keys and discard arbitrary err
     message: secret,
     code: secret,
   });
-  assert.match(rejected, /service_role\/secret key/);
+  assert.match(rejected, /check-auth\.ts/);
   assert.ok(!rejected.includes(secret));
   const unknown = ownerErrorMessage({
     message: secret,

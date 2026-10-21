@@ -95,7 +95,7 @@ export function ownerErrorMessage(error: unknown): string {
     (cause.status === 401 || cause.status === 403)
   )
     reason =
-      "Supabase admin access rejected. Use the service_role/secret key from the selected project, not an anon/publishable key.";
+      "Supabase admin access rejected. Run check-auth.ts to verify the active configuration and inspect the redacted server reason.";
   if (!reason && stage === "configuration")
     reason =
       "Check DATABASE_URL (or POSTGRES_URL), SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.hosted.local.";
@@ -257,6 +257,11 @@ if (process.argv[1]?.endsWith("owner.ts")) {
         if (error instanceof OwnerSetupError && error.stage === "database")
           console.error(
             "Database details:",
+            JSON.stringify(databaseErrorDetails(error.cause, [hiddenPassword])),
+          );
+        if (error instanceof OwnerSetupError && error.stage === "Supabase Auth")
+          console.error(
+            "Auth details:",
             JSON.stringify(databaseErrorDetails(error.cause, [hiddenPassword])),
           );
         process.exitCode = 1;
