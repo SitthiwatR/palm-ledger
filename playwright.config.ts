@@ -9,7 +9,12 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:3100",
     viewport: { width: 390, height: 844 },
     reducedMotion: "reduce",
-    screenshot: "only-on-failure",
+    screenshot:
+      process.env.OCR_RECEIPTS_MANIFEST || process.env.OCR_REAL_RECEIPT_PATH
+        ? "off"
+        : "only-on-failure",
+    trace: "off",
+    video: "off",
   },
   projects:
     process.env.TEST_WEBKIT === "1"

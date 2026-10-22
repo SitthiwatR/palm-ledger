@@ -1,14 +1,20 @@
 # พัฒนาและทดสอบ Palm Ledger
 
-## สถานะล่าสุด — Phase 9
+## สถานะล่าสุด — Phase 10
 
-ผู้ใช้รับงาน Phase 8 และให้เดิน Phase 9 แล้ว เพิ่ม automatic backup runner, daily/watchdog workflow templates และสถานะบน `/tools` แยก manual backup ดู [handoff Phase 9](handoff-phase9.md) และ [คู่มือติดตั้ง/ข้อจำกัด](automatic-backups.md)
+ผู้ใช้ให้พัก Phase 9 เพราะยังไม่มีลูกค้า แล้วให้ทำ Phase 10 เพื่อทดลองใช้และเก็บรายละเอียดแต่ละส่วน ปรับแนบรูปแล้วกรอกเองเป็นทางหลัก ไม่โหลด OCR จนเลือกใช้ เพิ่มหมุน/เลือกช่วงอ่านซ้ำที่ไม่ทับข้อมูลที่แก้เอง เก็บรูปต้นฉบับเดิม แก้ extraction หลังเทียบบิลจริงสองแบบ เพิ่มเวลารอ API/อัปโหลดและตรวจคำตอบหลุดหลัง commit ดู [handoff Phase 10](handoff-phase10.md) และ [ผลประเมิน/รายการตรวจ Safari/iPhone](phase10-acceptance.md)
 
-**ยังไม่เปิด production schedule:** ต้องมี private repository/โควตา/Actions secrets และตรวจการรับแจ้งผู้ดูแลจริง Source repo เป็น public และ `api.github.com` ถูก network policy workspace ปฏิเสธ หน้าเว็บแสดงยังไม่เชื่อมตัวรันอย่างชัดเจน ไม่อ้างว่า backup ทำงานแล้วก่อนมี offsite proof
+**ยังไม่ปิดการตรวจรับบนอุปกรณ์จริง:** WebKit ดาวน์โหลดถูก network policy ปฏิเสธ ไม่มี Safari/iPhone จริง เป้าหมายจบใน 1 นาทีและคุณภาพบิลทุกแบบยังต้องให้เจ้าของตรวจ ไม่ใช้ผล Chromium หรือ deployment Ready แทน
 
-ใช้ snapshot/encryption/full restore จาก Phase 8 เดิม รวม app/Auth identity/รูปพร้อม checksum ตัวรันตรวจ private destination และ strict TLS Daily lease/attempt ไม่เขียนทับสำเนาดี และ DB complete + audit commit หลัง readback/decrypt/manifest verification เท่านั้น Watchdog ไม่ต้องเชื่อมแอปหรือ Supabase เพื่อตรวจ old/missing offsite point
+ตรวจ hosted Auth แบบอ่านอย่างเดียวพบ `disable_signup: false` ต้องปิดใน Supabase Dashboard และตรวจซ้ำ เครื่องมือไม่มีสิทธิ์แก้ Auth config ไม่มีการสร้างบัญชีทดสอบบน production ตรวจได้ด้วยคำสั่งต่อไปนี้หลังตั้ง environment ที่เลือกให้ถูกต้อง (อ่านเท่านั้น ไม่พิมพ์ key):
 
-ไม่แก้ OCR/Three.js/session/credentials/encryption key/รูป production เดิม ไม่ทำ fixtures บน production งาน Safari/iPhone จริงและ extraction ยัง Phase 10
+```sh
+node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts --public-settings
+```
+
+ตรวจจาก API ของผู้ให้บริการแล้ว Supabase organization เป็น Free มีข้อจำกัดพื้นที่/egress/การพักโครงการ Vercel Hobby จำกัด non-commercial จึงยังไม่รับรองว่าบัญชีสวนเชิงธุรกิจใช้ Free ได้ ไม่เปลี่ยนแพ็กเกจ/credentials/encryption key/TLS เอง ดูลิงก์เงื่อนไขปัจจุบันใน acceptance
+
+Phase 9 เก็บ automatic runner/workflow templates/status ไว้ แต่ยังไม่เปิด schedule/ปลายทาง private ตามที่ผู้ใช้ให้พัก Manual backup/restore จาก Phase 8 ยังอยู่ ดู [handoff Phase 9](handoff-phase9.md) ไม่ถือว่า automatic backup ทำงานแล้ว
 
 ## หลักฐาน Phase 5
 

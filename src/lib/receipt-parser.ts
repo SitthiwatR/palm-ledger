@@ -28,8 +28,18 @@ const weightLabel = /นาหนกสทธ|นน\.?สทธ|netweight/;
 const priceLabel =
   /ราคาตอกโลกรม|ราคาตอกก\.?|ราคา\/?กก\.?|บาท\/(?:กก\.?|kg)|price(?:perkg)?|rateperkg|ราคา/;
 const totalLabel =
-  /รวมราคาทงสน|รวมราคาทงหมด|รวมเงนสทธ|เงนสทธ|รบสทธ|ยอดสทธ|net(?:total|amount)|amountpaid/;
+  /รวมราคาทงสน|รวมราคาทงหมด|รวมเงนสทธ|เงนสทธ|รบสทธ|ยอดสทธ|เปนเงน|net(?:total|amount)|amountpaid/;
 const otherLabel = /ราคา|วนท|date|นาหนก|weight|ยอด|total|รวม/;
+function originalTail(line: string, canonicalEnd: number) {
+  let offset = 0,
+    length = 0;
+  for (const char of line) {
+    offset += char.length;
+    length += labelKey(char).length;
+    if (length >= canonicalEnd) break;
+  }
+  return line.slice(offset);
+}
 function decimal(text: string, places: number) {
   const value = text.match(/\d[\d,]*(?:\.\d+)?/)?.[0] ?? "";
   if (
@@ -120,7 +130,8 @@ export function needsReceiptRetry(draft: ReceiptDraft) {
     !draft.priceBahtPerKg ||
     !draft.invoiceNumber ||
     !draft.saleDate ||
-    (Boolean(draft.printedNetBaht) && !checkAmounts(draft))
+    !draft.printedNetBaht ||
+    !checkAmounts(draft)
   );
 }
 export function parseReceipt(text: string, confidence: number): ReceiptDraft {
@@ -149,16 +160,25 @@ export function parseReceipt(text: string, confidence: number): ReceiptDraft {
     if (/วนท|วนเอกสาร|date/.test(key) && !draft.saleDate) {
       draft.saleDate = dateValue(line) || dateValue(lines[index + 1] ?? "");
     }
-    if (!draft.invoiceNumber && !/ทะเบยน|registration/.test(key)) {
+    if (
+      !draft.invoiceNumber &&
+      !/ทะเบยน|registration|หม\d|ทอย|ตาบล|อาเภอ|จงหวด|ต\.|อ\.|จ\.|โทร/.test(key)
+    ) {
       const label =
         /(?:ใบชง(?:นาหนก)?เลขท|เลขท(?:บล|ใบชง)?|เลขบล|(?:invoice|receipt|ticket)(?:no\.?|number)?)/.exec(
           key,
         );
       if (label) {
-        const tail = key
-          .slice(label.index + label[0].length)
-          .replace(/^[:：#.|]+/, "");
-        const candidate = tail || labelKey(lines[index + 1] ?? "");
+        const tail = originalTail(line, label.index! + label[0].length).trim();
+        const candidate = labelKey(
+          (labelKey(tail).replace(/^[:：#.|]+/, "")
+            ? tail
+            : lines[index + 1] || ""
+          )
+            // A table row can contain an unlabeled date beside the invoice.
+            // Keep that boundary before canonicalization removes spaces.
+            .replace(/\s+\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}.*$/, ""),
+        ).replace(/^[:：#.|]+/, "");
         const invoice = candidate.match(/^([a-z\d][a-z\d/\-]{0,79})/i)?.[1];
         if (invoice) draft.invoiceNumber = invoice.toUpperCase();
       }
@@ -171,7 +191,10 @@ export function parseReceipt(text: string, confidence: number): ReceiptDraft {
       else
         draft.buyer =
           companyName(line) ||
-          (/^(?:ลานปาล์ม|โรงงาน)/.test(compact) ? line.slice(0, 120) : "");
+          (/^(?:ลานปาล์ม|โรงงาน)/.test(compact) ||
+          (/ลาน(?:เท)?ปาลม/.test(key) && !/ผขาย|ลกคา|ทอย|โทร|ราคา/.test(key))
+            ? line.slice(0, 120)
+            : "");
     }
     if (!draft.weightKg)
       draft.weightKg = afterNumber(lines, index, weightLabel, 3);

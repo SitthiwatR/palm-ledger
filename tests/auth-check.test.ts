@@ -111,3 +111,67 @@ test("auth check sends only an admin read, detects real dotenv precedence and re
     await rm(folder, { recursive: true, force: true });
   }
 });
+
+test("release Auth check reports open signup, passes closed signup, and never sends a write or discloses a key", async () => {
+  const key = `sb_secret_${randomBytes(18).toString("hex")}`;
+  let disabled = false;
+  const requests: string[] = [];
+  const server = createServer((req, res) => {
+    requests.push(req.method + " " + req.url);
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "X-Supabase-Api-Version": "2024-01-01",
+    });
+    res.end(
+      JSON.stringify(
+        req.url === "/auth/v1/settings"
+          ? { disable_signup: disabled, external: { anonymous_users: false } }
+          : { users: [], aud: "authenticated" },
+      ),
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  try {
+    for (const closed of [false, true]) {
+      disabled = closed;
+      const child = spawn(
+        process.execPath,
+        ["--import", "tsx", "scripts/check-auth.ts", "--public-settings"],
+        {
+          env: {
+            ...process.env,
+            SUPABASE_URL: `http://127.0.0.1:${address.port}`,
+            SUPABASE_SERVICE_ROLE_KEY: key,
+            SUPABASE_ANON_KEY: key,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      let output = "";
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+      });
+      child.stderr.on("data", (chunk) => {
+        output += chunk;
+      });
+      const status = await new Promise<number | null>((resolve, reject) => {
+        child.on("error", reject);
+        child.on("close", resolve);
+      });
+      assert.equal(status, closed ? 0 : 1);
+      assert.ok(output.includes(`"signupDisabled":${closed}`));
+      assert.ok(!output.includes(key));
+    }
+    assert.equal(requests.length, 4);
+    assert.ok(requests.every((request) => request.startsWith("GET ")));
+    assert.equal(
+      requests.filter((request) => request === "GET /auth/v1/settings").length,
+      2,
+    );
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

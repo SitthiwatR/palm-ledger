@@ -2,7 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseReceipt } from "../src/lib/receipt-parser";
 import { calculateLabor } from "../src/lib/sale-math";
-import { mergeReceiptDrafts } from "../src/lib/receipt-parser";
+import {
+  mergeReceiptDrafts,
+  needsReceiptRetry,
+} from "../src/lib/receipt-parser";
 import { receiptRows } from "../src/lib/receipt-layout";
 import {
   paperBounds,
@@ -10,6 +13,47 @@ import {
   receiptSkew,
   removeReceiptRules,
 } from "../src/lib/receipt-pixels";
+import { fullReceipt, receiptSelection } from "../src/lib/receipt-selection";
+
+test("manual OCR selection crops the upright image after quarter turns and rejects invalid boundaries", () => {
+  assert.deepEqual(
+    receiptSelection(1200, 800, {
+      ...fullReceipt,
+      turns: 1,
+      top: 10,
+      right: 20,
+      bottom: 30,
+      left: 10,
+    }),
+    {
+      rotatedWidth: 800,
+      rotatedHeight: 1200,
+      x: 80,
+      y: 120,
+      width: 560,
+      height: 720,
+    },
+  );
+  assert.deepEqual(receiptSelection(1200, 800, { ...fullReceipt, turns: 2 }), {
+    rotatedWidth: 1200,
+    rotatedHeight: 800,
+    x: 0,
+    y: 0,
+    width: 1200,
+    height: 800,
+  });
+  for (const invalid of [
+    { turns: -1 },
+    { turns: 1.5 },
+    { turns: 4 },
+    { left: 41 },
+    { top: -1 },
+    { bottom: NaN },
+  ])
+    assert.throws(() =>
+      receiptSelection(1200, 800, { ...fullReceipt, ...invalid }),
+    );
+});
 
 test("blue weigh-slip format pairs each amount with its label on a multi-column price row", () => {
   const result = parseReceipt(
@@ -34,6 +78,31 @@ test("split OCR cells and detached Thai tone marks retain field relationships", 
   assert.equal(result.priceBahtPerKg, "8.70");
   assert.equal(result.printedNetBaht, "12876.00");
 });
+test("thermal weigh slip distinguishes an address number, net weight, price and amount labeled เป็นเงิน", () => {
+  const result = parseReceipt(
+    "ร้านตัวอย่าง ลานเทปาล์ม\nเลขที่ 12/3 หมู่ 4 ตำบลตัวอย่าง\nโทร. 081-0000000\nใบชั่งน้ำหนัก\nเลขที่ 0000001122 วันที่ 20/03/2569\nชั่งเข้า 3045\nชั่งออก 1855\nนน.คงเหลือ 1190\nหักน้ำหนักอื่นๆ 0.00 กก.\nน้ำหนักสุทธิ 1190.00 กก.\nราคา/กก. 7.90 บาท\nเป็นเงิน 9401.00 บาท",
+    90,
+  );
+  assert.equal(result.buyer, "ร้านตัวอย่าง ลานเทปาล์ม");
+  assert.equal(result.invoiceNumber, "0000001122");
+  assert.equal(result.saleDate, "2026-03-20");
+  assert.equal(result.weightKg, "1190.00");
+  assert.equal(result.priceBahtPerKg, "7.90");
+  assert.equal(result.printedNetBaht, "9401.00");
+  assert.deepEqual(result.deductions, []);
+});
+test("a filled draft without printed amount is reread and an abbreviated address is never its invoice number", () => {
+  const draft = parseReceipt(
+    "ลานปาล์มตัวอย่าง\nเลขที่ 98/5 WY7 ต.ทดสอบ อ.ทดสอบ\nเลขที่ 000001122\nวันที่ 20/03/2569\nน้ำหนักสุทธิ 1190\nราคา/กก. 7.90",
+    90,
+  );
+  assert.equal(draft.invoiceNumber, "000001122");
+  assert.equal(needsReceiptRetry(draft), true);
+  assert.equal(
+    needsReceiptRetry({ ...draft, printedNetBaht: "9401.00" }),
+    false,
+  );
+});
 test("OCR word positions rebuild table rows rather than reading columns top to bottom", () => {
   const word = (text: string, x: number, y: number) => ({
     text,
@@ -48,6 +117,8 @@ test("OCR word positions rebuild table rows rather than reading columns top to b
     word("รวมราคาทั้งสิ้น", 400, 200),
     word("12,876.00", 800, 201),
   ]);
+  const row = parseReceipt("เลขที่ 000001122 20/03/2569 1", 90);
+  assert.equal(row.invoiceNumber, "000001122");
   const result = parseReceipt(rows, 90);
   assert.equal(result.weightKg, "1480");
   assert.equal(result.priceBahtPerKg, "8.70");

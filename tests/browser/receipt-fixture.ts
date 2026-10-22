@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 export async function receiptFixture(page: Page, invoice = "BROWSER-001") {
   const image = await page.evaluate(async (invoice) => {
     await document.fonts.load('400 40px "Noto Sans Thai"');
@@ -89,4 +89,22 @@ export async function tableReceiptFixture(page: Page) {
     mimeType: "image/png",
     buffer: Buffer.from(image, "base64"),
   };
+}
+
+export async function readOptionalReceipt(page: Page) {
+  await expect(page.getByLabel("เลขบิล")).toBeVisible({ timeout: 65000 });
+  await page
+    .getByText("ตัวช่วยอ่านบิล (OCR) · เลือกใช้ได้", { exact: true })
+    .click();
+  await expect(page.locator(".receipt-selection img")).toBeVisible();
+  await page
+    .getByRole("button", { name: "อ่านช่วงที่เลือก", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "ใช้ผลอ่านใหม่แทนข้อมูลบิล" }),
+  ).toBeVisible({ timeout: 55000 });
+  await page.getByRole("button", { name: "ใช้ผลอ่านใหม่แทนข้อมูลบิล" }).click();
+  await page
+    .getByText("ตัวช่วยอ่านบิล (OCR) · เลือกใช้ได้", { exact: true })
+    .click();
 }

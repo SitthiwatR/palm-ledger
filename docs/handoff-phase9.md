@@ -1,5 +1,7 @@
 # ส่งต่องาน Palm Ledger — Phase 9
 
+> อัปเดตตามคำสั่งล่าสุด: ผู้ใช้ให้พัก Phase 9 เพราะยังไม่มีลูกค้า แล้วให้เดิน Phase 10 เก็บโค้ดเดิม แต่ไม่เปิด schedule/สร้าง private repository ในรอบ Phase 10 ดู [handoff ล่าสุด](handoff-phase10.md)
+
 22 ตุลาคม 2569 · [แผน](../plans/palm-ledger.md) · [ติดตั้ง/ดูแลสำรองอัตโนมัติ](automatic-backups.md)
 
 ## สถานะ
@@ -66,4 +68,4 @@ Build logs ยืนยัน `npm run deploy:build`, official database CA verif
 3. ติดตั้ง workflows/vars/secrets ใน private repository pin reviewed source SHA แล้ว dispatch สำรอง production จริงแบบอ่านอย่างเดียว ตรวจ artifacts/readback/status ในเว็บ และการรับแจ้ง failure/stale จริงใน sandbox
 4. ซ้อมกู้ **ไฟล์จาก provider จริง** ลง target ใหม่ ตรวจบัญชี/ยอด/รูปก่อนเรียก Phase 9 ครบเกณฑ์ ไม่สลับ production ไป test fixtures
 
-ยังไม่เดิน Phase 10/แก้ OCR หรืออ้างว่าทดสอบ Safari/iPhone จริงผ่าน
+ข้อความข้างต้นเป็นหลักฐานรอบ Phase 9; ผู้ใช้ให้เดิน Phase 10 ต่อแล้ว แต่ยังไม่อ้างว่า Safari/iPhone จริงผ่าน

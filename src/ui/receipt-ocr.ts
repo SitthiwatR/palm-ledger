@@ -110,10 +110,11 @@ export async function readReceipt(
           preserve_interword_spaces: "1",
         });
         const drafts = [];
-        let weightRegion: ReturnType<typeof netWeightRegion> = null;
+        let preparedWeightRegion: ReturnType<typeof netWeightRegion> = null;
         for (const [index, variant] of [
           prepared.cleanImage,
           prepared.fallbackImage,
+          image,
         ].entries()) {
           signal.throwIfAborted();
           if (index) {
@@ -125,13 +126,18 @@ export async function readReceipt(
             {},
             { text: true, blocks: true },
           );
+          signal.throwIfAborted();
           const words =
             data.blocks?.flatMap((block) =>
               block.paragraphs.flatMap((paragraph) =>
                 paragraph.lines.flatMap((line) => line.words),
               ),
             ) ?? [];
-          weightRegion ??= netWeightRegion(words);
+          const foundRegion = netWeightRegion(words);
+          // Clean/color copies share coordinates. Reuse a recognized label on
+          // the clean copy; the original image has its own coordinate space.
+          const weightRegion =
+            index < 2 ? (preparedWeightRegion ??= foundRegion) : foundRegion;
           const rows = receiptRows(words);
           drafts.push(parseReceipt(rows || data.text, data.confidence));
           if (rows && rows !== data.text)
@@ -143,7 +149,10 @@ export async function readReceipt(
             result.printedNetBaht
           ) {
             const focused = weightRegion
-              ? await receiptRegion(prepared.cleanImage, weightRegion)
+              ? await receiptRegion(
+                  index < 2 ? prepared.cleanImage : image,
+                  weightRegion,
+                )
               : null;
             if (focused) {
               onProgress("กำลังตรวจน้ำหนักสุทธิในช่องตาราง…");
@@ -152,6 +161,7 @@ export async function readReceipt(
                 tessedit_char_whitelist: "0123456789,.",
               });
               const cell = await worker.recognize(focused);
+              signal.throwIfAborted();
               const recovered = recoverReceiptWeight(result, cell.data.text);
               if (recovered) {
                 drafts.push(recovered);
@@ -163,7 +173,7 @@ export async function readReceipt(
               });
             }
           }
-          if (!needsReceiptRetry(result) || index === 1) return result;
+          if (!needsReceiptRetry(result) || index === 2) return result;
         }
         return mergeReceiptDrafts(drafts);
       })(),

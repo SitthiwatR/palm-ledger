@@ -16,24 +16,34 @@ export async function api(
   method = "GET",
   data?: unknown,
   key?: string,
+  signal?: AbortSignal,
 ) {
-  const response = await fetch("/api/v1/" + path, {
-    method,
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: {
-      ...(data ? { "Content-Type": "application/json" } : {}),
-      ...(key ? { "Idempotency-Key": key } : {}),
-    },
-    body: data ? JSON.stringify(data) : undefined,
-  });
-  const result = await response.json();
-  if (!response.ok) {
-    if (response.status === 401 && window.location.pathname !== "/login")
-      window.location.replace("/login");
-    throw new RequestError(result.error, response.status);
+  const controller = new AbortController();
+  const timeout = signal
+    ? undefined
+    : setTimeout(() => controller.abort(), 60000);
+  try {
+    const response = await fetch("/api/v1/" + path, {
+      method,
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: signal ?? controller.signal,
+      headers: {
+        ...(data ? { "Content-Type": "application/json" } : {}),
+        ...(key ? { "Idempotency-Key": key } : {}),
+      },
+      body: data ? JSON.stringify(data) : undefined,
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      if (response.status === 401 && window.location.pathname !== "/login")
+        window.location.replace("/login");
+      throw new RequestError(result.error, response.status);
+    }
+    return result;
+  } finally {
+    clearTimeout(timeout);
   }
-  return result;
 }
 export function message(error: unknown) {
   return error instanceof RequestError

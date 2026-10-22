@@ -1,8 +1,8 @@
 # สเปกและแผนพัฒนาเว็บรายรับรายจ่ายสวนปาล์ม
 
-Status: in progress — ผู้ใช้รับงานและให้ปิด Phase 1–3 แล้ว Phase 4 implement และทดสอบแล้ว รอผู้ใช้ตรวจรับ; OCR ฟรีในเบราว์เซอร์ที่ใช้อยู่ให้ผลไม่ดีตามการทดสอบของผู้ใช้ ย้ายปรับวิธี extraction และตรวจเป้าหมาย 1 นาทีไป Phase 10 ดู plans/palm-ledger.md และ docs/handoff-phase4.md
+Status: in progress — ผู้ใช้รับงาน Phase 1–8 และให้พัก Phase 9 แล้ว ให้ทำ Phase 10 ก่อนทดลองใช้จริง/เก็บรายละเอียดแต่ละส่วน ดู plans/palm-ledger.md, docs/handoff-phase10.md และ docs/phase10-acceptance.md การรับรอง OCR/เป้าหมาย 1 นาทีบน iPhone และเงื่อนไขโฮสต์ยังแยกจากผล automation
 
-ปรับปรุง: 21 ตุลาคม 2569 · เขตเวลา Asia/Bangkok
+ปรับปรุง: 22 ตุลาคม 2569 · เขตเวลา Asia/Bangkok
 
 เอกสารนี้สังเคราะห์จากข้อสรุปกับเจ้าของสวน ต้นแบบแบบแรก และ user flow ที่จัดทำไว้ เป็นแผนพัฒนา ไม่ใช่รายงานว่าระบบ production ถูกสร้างแล้ว
 

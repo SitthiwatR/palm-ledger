@@ -2,8 +2,14 @@ import { test, expect } from "@playwright/test";
 import type { ChildProcess } from "node:child_process";
 import { prepare, password, username, startApp, stopApp } from "../support";
 import { manageOwner } from "../../scripts/owner";
-import { receiptFixture, tableReceiptFixture } from "./receipt-fixture";
-import { readFileSync } from "node:fs";
+import {
+  receiptFixture,
+  tableReceiptFixture,
+  readOptionalReceipt,
+} from "./receipt-fixture";
+import { readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { prototypeFixture } from "../prototype-fixture";
 
 let app: ChildProcess;
@@ -64,8 +70,12 @@ test("owner signs in, adds and edits gardens, preserves balances across devices,
   await page.getByRole("link", { name: /รายการ/ }).click();
   await expect(page.getByLabel("ผู้รับซื้อ")).not.toBeVisible();
   const receipt = await receiptFixture(page);
-  const attach = () =>
-    page.getByLabel("เลือกรูปบิล", { exact: true }).setInputFiles(receipt);
+  const attach = async () => {
+    await page
+      .getByLabel("เลือกรูปบิล", { exact: true })
+      .setInputFiles(receipt);
+    await readOptionalReceipt(page);
+  };
   const started = Date.now();
   await attach();
   await expect(page.getByLabel("น้ำหนักสุทธิ (กก.)")).toBeVisible({
@@ -228,7 +238,6 @@ test("HEIC preview, manual fallback and daily wages retain values after a failed
     if (failUpload)
       await page.route("**/api/v1/receipts/verify", (route) => route.abort());
     await page.getByLabel("เลือกรูปบิล", { exact: true }).setInputFiles(heic);
-    await page.getByRole("button", { name: "ข้ามการอ่านและกรอกเอง" }).click();
     if (failUpload) {
       await expect(page.locator(".receipt-workflow [role=alert]")).toBeVisible({
         timeout: 30000,
@@ -318,6 +327,7 @@ test("blue table receipt separates net weight and same-row price/total", async (
   const started = Date.now();
   const fixture = await tableReceiptFixture(page);
   await page.getByLabel("เลือกรูปบิล", { exact: true }).setInputFiles(fixture);
+  await readOptionalReceipt(page);
   await expect(page.getByLabel("น้ำหนักสุทธิ (กก.)")).toBeVisible({
     timeout: 55000,
   });
@@ -376,6 +386,7 @@ test("private reference photo reads printed table values without saving a sale",
   await page
     .getByLabel("เลือกรูปบิล", { exact: true })
     .setInputFiles(process.env.OCR_REAL_RECEIPT_PATH!);
+  await readOptionalReceipt(page);
   await expect(page.getByLabel("น้ำหนักสุทธิ (กก.)")).toBeVisible({
     timeout: 55000,
   });
@@ -582,7 +593,6 @@ test("Phase 4 team weight expense and linked sale reuse rates with per-record ov
       "base64",
     ),
   });
-  await page.getByRole("button", { name: "ข้ามการอ่านและกรอกเอง" }).click();
   await expect(page.getByLabel("เลขบิล")).toBeVisible({ timeout: 30000 });
   await page.getByLabel("ผู้รับซื้อ").fill("ผู้รับซื้อเฟสสี่");
   await page.getByLabel("เลขบิล").fill("BROWSER-PHASE4");
@@ -1375,8 +1385,19 @@ test("failed saves keep form input, and administrator reset forces a new login",
   );
   await page.getByRole("button", { name: "ยกเลิก", exact: true }).click();
   await manageOwner("reset", username, password + "reset");
-  await page.reload();
-  await expect(page).toHaveURL(/\/login$/);
+  try {
+    await page.reload();
+    await expect(page).toHaveURL(/\/login$/);
+    await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+    await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password + "reset");
+    await page
+      .getByRole("button", { name: "เข้าสู่ระบบ", exact: true })
+      .click();
+    await expect(page.locator(".total")).toBeVisible();
+  } finally {
+    // Keep subsequent tests independent of this test's temporary credential.
+    await manageOwner("reset", username, password);
+  }
 });
 
 test("3D welcome respects reduced motion and keeps login usable after losing WebGL", async ({
@@ -1483,4 +1504,333 @@ test("login remains usable when WebGL is unavailable from the start", async ({
   );
   await expect(page.locator(".landscape-fallback")).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("Phase 10 rotated receipt rereads a selected region without replacing manual edits or uploading twice", async ({
+  page,
+}) => {
+  test.setTimeout(120000);
+  await page.goto("/login");
+  await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+  await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await page.goto("/records");
+  const fixture = await receiptFixture(page, "ROTATE-010");
+  const rotated = await page.evaluate(async (encoded) => {
+    const image = new Image();
+    image.src = "data:image/png;base64," + encoded;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.height;
+    canvas.height = image.width;
+    const context = canvas.getContext("2d")!;
+    context.translate(canvas.width / 2, canvas.height / 2);
+    context.rotate(Math.PI / 2);
+    context.drawImage(image, -image.width / 2, -image.height / 2);
+    return canvas.toDataURL("image/png").split(",")[1];
+  }, fixture.buffer.toString("base64"));
+  let uploads = 0,
+    sales = 0,
+    ocrRequests = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/ocr/")) ocrRequests++;
+    if (request.method() !== "POST") return;
+    if (new URL(request.url()).pathname === "/api/v1/receipts/upload-url")
+      uploads++;
+    if (new URL(request.url()).pathname === "/api/v1/sales") sales++;
+  });
+  await page.getByLabel("เลือกรูปบิล", { exact: true }).setInputFiles({
+    name: "rotated.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(rotated, "base64"),
+  });
+  await expect(page.getByLabel("เลขบิล")).toBeVisible({ timeout: 30000 });
+  expect(ocrRequests).toBe(0);
+  await expect(page.getByLabel("น้ำหนักสุทธิ (กก.)")).toHaveValue("");
+  await page.getByLabel("เลขบิล").fill("MANUAL-KEEP");
+  await page
+    .getByText("ตัวช่วยอ่านบิล (OCR) · เลือกใช้ได้", { exact: true })
+    .click();
+  for (let i = 0; i < 3; i++)
+    await page.getByRole("button", { name: "หมุนขวา 90°" }).click();
+  await expect(page.locator(".receipt-selection img")).toBeVisible();
+  await page.getByLabel("ตัดด้านบน", { exact: true }).fill("1");
+  await page
+    .getByRole("button", { name: "อ่านช่วงที่เลือก", exact: true })
+    .click();
+  await expect(page.getByLabel("เลขบิล")).toBeDisabled();
+  await page.getByRole("button", { name: "หยุดอ่าน · เก็บข้อมูลเดิม" }).click();
+  await expect(page.getByLabel("เลขบิล")).toBeEnabled();
+  await expect(page.getByLabel("เลขบิล")).toHaveValue("MANUAL-KEEP");
+  await page
+    .getByRole("button", { name: "อ่านช่วงที่เลือก", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "ใช้ผลอ่านใหม่แทนข้อมูลบิล" }),
+  ).toBeVisible({ timeout: 55000 });
+  await expect(page.getByLabel("เลขบิล")).toHaveValue("MANUAL-KEEP");
+  await expect(page.locator(".receipt-candidate")).toContainText("ROTATE-010");
+  await page.getByRole("button", { name: "ใช้ผลอ่านใหม่แทนข้อมูลบิล" }).click();
+  await expect(page.getByLabel("เลขบิล")).toHaveValue("ROTATE-010");
+  await expect(page.getByLabel("น้ำหนักสุทธิ (กก.)")).toHaveValue("3500.000");
+  await expect(page.getByLabel("ราคาต่อกิโลกรัม (บาท)")).toHaveValue("5.00");
+  expect(uploads).toBe(1);
+  expect(sales).toBe(0);
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.getByLabel("เลขบิล").focus();
+  expect(
+    await page
+      .locator(".bottom-nav")
+      .evaluate((element) => getComputedStyle(element).position),
+  ).toBe("static");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test.describe("private OCR evaluation", () => {
+  test("Phase 10 reports field accuracy and time for locally supplied real receipts without saving sales", async ({
+    page,
+  }) => {
+    test.skip(
+      !process.env.OCR_RECEIPTS_MANIFEST,
+      "Private images/ground truth are supplied locally, never committed.",
+    );
+    const samples = JSON.parse(
+      readFileSync(process.env.OCR_RECEIPTS_MANIFEST!, "utf8"),
+    ) as {
+      path: string;
+      expected: Record<string, string>;
+      selection?: {
+        turns?: number;
+        top?: number;
+        right?: number;
+        bottom?: number;
+        left?: number;
+      };
+    }[];
+    test.setTimeout(90000 * samples.length);
+    if (process.env.OCR_MODEL_VARIANT === "best_int")
+      await page.route(/\/ocr\/(tha|eng)\.traineddata\.gz$/, (route) => {
+        const lang = new URL(route.request().url()).pathname
+          .split("/")
+          .at(-1)!
+          .split(".")[0];
+        return route.fulfill({
+          body: readFileSync(
+            `node_modules/@tesseract.js-data/${lang}/4.0.0_best_int/${lang}.traineddata.gz`,
+          ),
+          contentType: "application/gzip",
+        });
+      });
+    await page.goto("/login");
+    await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+    await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+    await page
+      .getByRole("button", { name: "เข้าสู่ระบบ", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/$/);
+    const gardens = await (await page.request.get("/api/v1/gardens")).json();
+    if (
+      !gardens.gardens.some((garden: { archived: boolean }) => !garden.archived)
+    )
+      await page.request.post("/api/v1/gardens", {
+        headers: {
+          Origin: "http://127.0.0.1:3100",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
+        data: { name: "สวนประเมินรูปส่วนตัว", openingMinor: 0 },
+      });
+    let sales = 0;
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname === "/api/v1/sales"
+      )
+        sales++;
+    });
+    for (const [index, sample] of samples.entries()) {
+      await page.goto("/records");
+      const start = Date.now();
+      await page
+        .getByLabel("เลือกรูปบิล", { exact: true })
+        .setInputFiles(sample.path);
+      await readOptionalReceipt(page);
+      await expect(page.getByLabel("เลขบิล")).toBeVisible({ timeout: 65000 });
+      if (sample.selection) {
+        await page
+          .getByText("ตัวช่วยอ่านบิล (OCR) · เลือกใช้ได้", { exact: true })
+          .click();
+        for (let turn = 0; turn < (sample.selection.turns ?? 0); turn++)
+          await page.getByRole("button", { name: "หมุนขวา 90°" }).click();
+        await expect(page.locator(".receipt-selection img")).toBeVisible();
+        for (const [key, label] of [
+          ["top", "ตัดด้านบน"],
+          ["right", "ตัดด้านขวา"],
+          ["bottom", "ตัดด้านล่าง"],
+          ["left", "ตัดด้านซ้าย"],
+        ] as const)
+          if (sample.selection[key] !== undefined)
+            await page
+              .getByLabel(label, { exact: true })
+              .fill(String(sample.selection[key]));
+        await page
+          .getByRole("button", { name: "อ่านช่วงที่เลือก", exact: true })
+          .click();
+        await expect(
+          page.getByRole("button", { name: "ใช้ผลอ่านใหม่แทนข้อมูลบิล" }),
+        ).toBeVisible({ timeout: 55000 });
+        await page
+          .getByRole("button", { name: "ใช้ผลอ่านใหม่แทนข้อมูลบิล" })
+          .click();
+      }
+      const elapsedMs = Date.now() - start;
+      if (
+        process.env.OCR_DEBUG_TEXT === "1" &&
+        (await page.locator(".ocr-text pre").count())
+      ) {
+        writeFileSync(
+          join(tmpdir(), `palm-private-ocr-${index + 1}.txt`),
+          (await page.locator(".ocr-text pre").textContent()) ?? "",
+          { mode: 0o600 },
+        );
+      }
+      const labels: Record<string, string> = {
+        saleDate: "วันที่ขาย",
+        buyer: "ผู้รับซื้อ",
+        invoiceNumber: "เลขบิล",
+        weightKg: "น้ำหนักสุทธิ (กก.)",
+        priceBahtPerKg: "ราคาต่อกิโลกรัม (บาท)",
+      };
+      const accuracy: Record<string, boolean> = {};
+      for (const [field, label] of Object.entries(labels)) {
+        if (!(field in sample.expected)) continue;
+        const actual = await page.getByLabel(label).inputValue();
+        accuracy[field] = ["weightKg", "priceBahtPerKg"].includes(field)
+          ? Boolean(actual) && Number(actual) === Number(sample.expected[field])
+          : actual === sample.expected[field];
+      }
+      if ("printedNetBaht" in sample.expected) {
+        const printedField = page.locator(".sale-calculation small").first();
+        const printed = (await printedField.count())
+          ? await printedField.textContent()
+          : "";
+        accuracy.printedNetBaht = Boolean(
+          printed?.includes(sample.expected.printedNetBaht),
+        );
+      }
+      console.log(
+        JSON.stringify({
+          privateSample: index + 1,
+          elapsedMs,
+          assisted: Boolean(sample.selection),
+          accuracy,
+          corrections: Object.values(accuracy).filter((value) => !value).length,
+          ocrFee: 0,
+          draftTextPresent: (await page.locator(".ocr-text pre").count()) > 0,
+          fallback: await page.locator(".review-intro p").textContent(),
+        }),
+      );
+    }
+    expect(sales).toBe(0);
+  });
+});
+
+test("Phase 10 a delayed committed sale survives a lost response and retries without duplicating linked team wages", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  await page.goto("/login");
+  await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+  await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  const garden = await (
+    await page.request.post("/api/v1/gardens", {
+      headers: {
+        Origin: "http://127.0.0.1:3100",
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      data: { name: "สวนเครือข่ายขัดข้อง", openingMinor: 500000 },
+    })
+  ).json();
+  await page.goto("/records");
+  await page
+    .getByLabel("เลือกรูปบิล", { exact: true })
+    .setInputFiles(await receiptFixture(page, "LOST-RESPONSE"));
+  await expect(page.getByLabel("เลขบิล")).toBeVisible({ timeout: 30000 });
+  await page
+    .locator(".receipt-workflow")
+    .getByLabel("สวน")
+    .selectOption(garden.id);
+  await page.getByLabel("ผู้รับซื้อ").fill("ผู้ซื้อทดสอบขาดการเชื่อมต่อ");
+  await page.getByLabel("เลขบิล").fill("LOST-RESPONSE");
+  await page.getByLabel("น้ำหนักสุทธิ (กก.)").fill("1000");
+  await page.getByLabel("ราคาต่อกิโลกรัม (บาท)").fill("10");
+  await page
+    .getByRole("button", { name: "ข้อมูลถูกต้อง · เลือกค่าแรง" })
+    .click();
+  await page.getByRole("radio", { name: "รายน้ำหนัก", exact: true }).check();
+  await page.getByLabel("ชื่อทีม", { exact: true }).fill("ทีมเครือข่าย");
+  await page.getByLabel("บาทต่อตัน", { exact: true }).fill("500");
+  await page.getByLabel("ตรวจข้อมูลแล้ว และได้รับเงินขายเต็มจำนวน").check();
+  let committed = false;
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const keys: string[] = [];
+  await page.route("**/api/v1/sales", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    keys.push(route.request().headers()["idempotency-key"]);
+    const response = await route.fetch();
+    expect(response.status()).toBe(201);
+    committed = true;
+    await gate;
+    await route.abort();
+  });
+  await page.getByRole("button", { name: "ยืนยันและบันทึก" }).click();
+  await expect.poll(() => committed).toBe(true);
+  await expect(
+    page.getByRole("button", { name: "กำลังบันทึก…", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByText("บันทึกบิลขายแล้ว", { exact: true }),
+  ).not.toBeVisible();
+  release();
+  await expect(page.locator(".receipt-workflow [role=alert]")).toBeVisible();
+  await expect(page.getByLabel("ชื่อทีม", { exact: true })).toHaveValue(
+    "ทีมเครือข่าย",
+  );
+  await page.unroute("**/api/v1/sales");
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/v1/sales"
+    )
+      keys.push(request.headers()["idempotency-key"]);
+  });
+  await page.getByRole("button", { name: "ยืนยันและบันทึก" }).click();
+  await expect(
+    page.getByText("บันทึกบิลขายแล้ว", { exact: true }),
+  ).toBeVisible();
+  expect(keys.length).toBe(2);
+  expect(keys[0]).toBe(keys[1]);
+  await page.reload();
+  const sales = (
+    await (await page.request.get("/api/v1/sales")).json()
+  ).sales.filter(
+    (sale: { invoiceNumber: string }) => sale.invoiceNumber === "LOST-RESPONSE",
+  );
+  expect(sales).toHaveLength(1);
+  expect(sales[0].labor).toHaveLength(1);
+  expect(sales[0].labor[0].amountMinor).toBe(50000);
+  const savedGarden = (
+    await (await page.request.get("/api/v1/gardens")).json()
+  ).gardens.find((item: { id: string }) => item.id === garden.id);
+  expect(savedGarden.netMinor).toBe(1450000);
+  expect(savedGarden.laborPendingMinor).toBe(50000);
 });

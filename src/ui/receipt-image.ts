@@ -4,6 +4,10 @@ import {
   receiptSkew,
   removeReceiptRules,
 } from "../lib/receipt-pixels";
+import {
+  receiptSelection,
+  type ReceiptSelection,
+} from "../lib/receipt-selection";
 
 function canvas(width: number, height: number) {
   const element = document.createElement("canvas");
@@ -23,6 +27,57 @@ const png = (element: HTMLCanvasElement) =>
       "image/png",
     ),
   );
+
+export async function selectReceiptImage(
+  image: Blob,
+  selection: ReceiptSelection,
+) {
+  const url = URL.createObjectURL(image);
+  let rotated: ReturnType<typeof canvas> | undefined;
+  let cropped: ReturnType<typeof canvas> | undefined;
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const region = receiptSelection(
+      img.naturalWidth,
+      img.naturalHeight,
+      selection,
+    );
+    rotated = canvas(region.rotatedWidth, region.rotatedHeight);
+    rotated.context.translate(
+      region.rotatedWidth / 2,
+      region.rotatedHeight / 2,
+    );
+    rotated.context.rotate((selection.turns * Math.PI) / 2);
+    rotated.context.drawImage(
+      img,
+      -img.naturalWidth / 2,
+      -img.naturalHeight / 2,
+    );
+    cropped = canvas(region.width, region.height);
+    cropped.context.drawImage(
+      rotated.element,
+      region.x,
+      region.y,
+      region.width,
+      region.height,
+      0,
+      0,
+      region.width,
+      region.height,
+    );
+    return await png(cropped.element);
+  } finally {
+    URL.revokeObjectURL(url);
+    for (const target of [rotated, cropped]) {
+      if (target) {
+        target.element.width = 1;
+        target.element.height = 1;
+      }
+    }
+  }
+}
 
 export async function enhanceReceiptImage(image: Blob) {
   const url = URL.createObjectURL(image);

@@ -1730,6 +1730,95 @@ svg {
   object-position: left;
   background: white;
 }
+.receipt-reader {
+  margin-bottom: 20px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f7f9f0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.receipt-reader summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: list-item;
+  padding-block: 10px;
+}
+.receipt-reader p {
+  margin-block: 10px;
+}
+.receipt-selection {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  overflow: hidden;
+  background: white;
+}
+.receipt-selection img {
+  display: block;
+  max-width: 100%;
+  max-height: 480px;
+  height: auto;
+  width: auto;
+}
+.receipt-selection-box {
+  position: absolute;
+  border: 2px solid #365725;
+  box-shadow: 0 0 0 1000px #173e3080;
+  pointer-events: none;
+}
+.receipt-crop-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.receipt-crop-controls label {
+  display: grid;
+  min-width: 0;
+}
+.receipt-crop-controls input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  accent-color: #54753d;
+}
+.receipt-reader .receipt-actions {
+  flex-wrap: wrap;
+  margin-block: 10px 0;
+}
+.receipt-reader .receipt-actions button {
+  flex: 1 1 120px;
+}
+.receipt-candidate {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.receipt-candidate dl > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-block: 8px;
+}
+.receipt-candidate dd {
+  margin: 0;
+}
+
+/* Native keyboards resize the visual viewport on phones. Keep fields and
+   actions scrollable; fixed navigation must never cover a focused input. */
+input,
+select,
+textarea,
+button {
+  scroll-margin-block: 24px 120px;
+}
+@media (max-width: 760px) {
+  body:has(input:focus, textarea:focus, select:focus) .bottom-nav {
+    position: static;
+  }
+}
 .sale-field-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

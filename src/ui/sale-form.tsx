@@ -7,7 +7,8 @@ import {
   type LaborInput,
 } from "../lib/sale-math";
 import type { ReceiptDraft } from "../lib/receipt-parser";
-import { prepareReceiptImage, readReceipt, receiptMime } from "./receipt-ocr";
+import { prepareReceiptImage, receiptMime } from "./receipt-ocr";
+import { ReceiptReader } from "./receipt-reader";
 
 type GardenChoice = { id: string; name: string; archived: boolean };
 type Profile = { mode: "daily" | "weight"; payee: string; rateBaht: string };
@@ -57,11 +58,12 @@ export function SaleForm({
   >([]);
   const [file, setFile] = useState<File | null>(null),
     [preview, setPreview] = useState("");
+  const [previewImage, setPreviewImage] = useState<Blob | null>(null),
+    [retryReading, setRetryReading] = useState(false);
   const [draft, setDraft] = useState<ReceiptDraft | null>(null),
     [ocrNote, setOcrNote] = useState("");
   const [progress, setProgress] = useState(""),
-    [busy, setBusy] = useState(false),
-    [reading, setReading] = useState(false);
+    [busy, setBusy] = useState(false);
   const [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [receivedFull, setReceivedFull] = useState(false);
@@ -72,11 +74,9 @@ export function SaleForm({
     pendingId = useRef("");
   const lock = useRef(false),
     touched = useRef(false),
-    controller = useRef<AbortController | null>(null),
-    skip = useRef(false);
+    uploadController = useRef<AbortController | null>(null);
   const saleKey = useRef({ key: "", body: "" }),
-    heading = useRef<HTMLHeadingElement>(null),
-    recognizedDraft = useRef<ReceiptDraft | null>(null);
+    heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     let active = true;
     api("sales/preferences")
@@ -95,7 +95,7 @@ export function SaleForm({
       .catch(() => {});
     return () => {
       active = false;
-      controller.current?.abort();
+      uploadController.current?.abort();
     };
   }, [gardens]);
   useEffect(
@@ -108,7 +108,7 @@ export function SaleForm({
     if (step !== "upload") heading.current?.focus();
   }, [step]);
 
-  async function uploadOriginal(selected: File) {
+  async function uploadOriginal(selected: File, signal: AbortSignal) {
     if (pendingId.current) return;
     const mimeType = receiptMime(selected);
     if (selected.size < 1 || selected.size > 10 * 1024 * 1024)
@@ -120,11 +120,13 @@ export function SaleForm({
         "POST",
         { mimeType, sizeBytes: selected.size },
         crypto.randomUUID(),
+        signal,
       );
     const info = prepared.current!;
     const { createClient } = await import("@supabase/supabase-js");
     const storage = createClient(info.supabaseUrl, info.anonKey, {
       auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: (url, init) => fetch(url, { ...init, signal }) },
     });
     // Verify even after a transport error: the object may already have arrived.
     await storage.storage
@@ -132,10 +134,17 @@ export function SaleForm({
       .uploadToSignedUrl(info.path, info.token, selected, {
         contentType: mimeType,
         upsert: false,
-      });
-    const verified = await api("receipts/verify", "POST", {
-      pendingReceiptId: info.id,
-    });
+      })
+      .catch(() => {});
+    const verified = await api(
+      "receipts/verify",
+      "POST",
+      {
+        pendingReceiptId: info.id,
+      },
+      undefined,
+      signal,
+    );
     pendingId.current = verified.id;
   }
   function applyDraft(result: ReceiptDraft) {
@@ -157,10 +166,8 @@ export function SaleForm({
     touched.current = true;
     lock.current = true;
     setBusy(true);
-    setReading(!retry);
     setError("");
     setNotice("");
-    skip.current = false;
     if (!retry) {
       prepared.current = null;
       pendingId.current = "";
@@ -169,66 +176,58 @@ export function SaleForm({
       setDraft(null);
       setOcrNote("");
       setPreview("");
-      recognizedDraft.current = null;
+      setPreviewImage(null);
       setReceivedFull(false);
+      setInvoiceNumber("");
+      setWeightKg("");
+      setPrice("");
+      setDeductions([]);
+      setSaleDate(today());
     }
-    const aborter = new AbortController();
-    controller.current = aborter;
-    const timeout = window.setTimeout(() => aborter.abort(), 45000);
+    const uploader = new AbortController();
+    uploadController.current = uploader;
+    const uploadTimeout = window.setTimeout(() => uploader.abort(), 60000);
     try {
       if (!receiptMime(selected))
         throw new Error("รองรับรูป JPEG, PNG, WebP, HEIC และ HEIF");
       if (selected.size < 1 || selected.size > 10 * 1024 * 1024)
         throw new Error("รูปบิลต้องมีขนาดไม่เกิน 10 MB");
       setProgress(
-        retry ? "กำลังอัปโหลดรูปอีกครั้ง…" : "กำลังอัปโหลดและอ่านบิล…",
+        retry ? "กำลังอัปโหลดรูปอีกครั้ง…" : "กำลังอัปโหลดและเตรียมรูปบิล…",
       );
-      const upload = uploadOriginal(selected);
-      const recognize = retry
+      const upload = uploadOriginal(selected, uploader.signal);
+      const prepare = retry
         ? Promise.resolve()
         : (async () => {
             try {
               const image = await prepareReceiptImage(selected);
+              setPreviewImage(image);
               setPreview(URL.createObjectURL(image));
-              if (skip.current) return;
-              const result = await readReceipt(
-                image,
-                aborter.signal,
-                setProgress,
-              );
-              if (!skip.current) recognizedDraft.current = result;
             } catch {
-              setOcrNote(
-                skip.current
-                  ? "กรอกข้อมูลจากรูปบิลได้เลย"
-                  : "อ่านบิลไม่สำเร็จหรือใช้เวลานาน กรอกข้อมูลจากรูปได้เลย หรือกลับไปเลือกรูปที่ชัดขึ้น",
-              );
-            } finally {
-              setReading(false);
-              if (!pendingId.current)
-                setProgress("กำลังอัปโหลดและตรวจรูปต้นฉบับ…");
+              // The verified original remains usable even when a local preview fails.
             }
           })();
-      const results = await Promise.allSettled([upload, recognize]);
+      const results = await Promise.allSettled([upload, prepare]);
       if (results[0].status === "rejected") throw results[0].reason;
-      if (recognizedDraft.current) {
-        applyDraft(recognizedDraft.current);
-        recognizedDraft.current = null;
-      }
+      setOcrNote(
+        "กรอกข้อมูลจากรูปบิล ระบบช่วยคำนวณยอดให้ ยังไม่ลงบัญชีจนกว่าจะยืนยัน",
+      );
       setStep("review");
     } catch (problem) {
       setError(
         problem instanceof RequestError
           ? problem.message
-          : problem instanceof Error
+          : problem instanceof Error &&
+              !["AbortError", "TimeoutError", "TypeError"].includes(
+                problem.name,
+              )
             ? problem.message
             : message(problem),
       );
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(uploadTimeout);
       lock.current = false;
       setBusy(false);
-      setReading(false);
       setProgress("");
     }
   }
@@ -286,7 +285,7 @@ export function SaleForm({
       setStep("labor");
       return;
     }
-    if (lock.current || !pendingId.current) return;
+    if (lock.current || retryReading || !pendingId.current) return;
     lock.current = true;
     setBusy(true);
     setError("");
@@ -335,6 +334,7 @@ export function SaleForm({
       setStep("upload");
       setFile(null);
       setPreview("");
+      setPreviewImage(null);
       setDraft(null);
       setInvoiceNumber("");
       setWeightKg("");
@@ -412,7 +412,7 @@ export function SaleForm({
             ↥
           </div>
           <h3>ถ่ายหรือเลือกรูปบิล</h3>
-          <p>ระบบอ่านข้อมูลให้ก่อน คุณเพียงตรวจและแก้</p>
+          <p>แนบรูปไว้เป็นหลักฐาน แล้วกรอกข้อมูลจากบิล</p>
           <div className="receipt-actions">
             <label className={`primary file-action ${busy ? "disabled" : ""}`}>
               ถ่ายบิล
@@ -455,21 +455,8 @@ export function SaleForm({
             <div className="ocr-progress" role="status">
               <span className="loading-dot" />
               {progress}
-              <small>ครั้งแรกต้องโหลดตัวอ่านภาษาไทยและอังกฤษ</small>
+              <small>เก็บรูปต้นฉบับไว้เป็นหลักฐาน</small>
             </div>
-          )}
-          {reading && (
-            <button
-              className="text-button"
-              type="button"
-              onClick={() => {
-                skip.current = true;
-                setOcrNote("กรอกหรือตรวจข้อมูลทุกช่องจากรูปบิลได้เลย");
-                controller.current?.abort();
-              }}
-            >
-              ข้ามการอ่านและกรอกเอง
-            </button>
           )}
           {file && !busy && error && (
             <button
@@ -481,13 +468,24 @@ export function SaleForm({
           )}
         </div>
       ) : (
-        <form className="sale-form" onSubmit={submit} aria-busy={busy}>
-          <fieldset disabled={busy} className="workflow-fields">
+        <form
+          className="sale-form"
+          onSubmit={submit}
+          aria-busy={busy || retryReading}
+        >
+          {step === "review" && previewImage && (
+            <ReceiptReader
+              image={previewImage}
+              onApply={applyDraft}
+              onReading={setRetryReading}
+            />
+          )}
+          <fieldset disabled={busy || retryReading} className="workflow-fields">
             {step === "review" ? (
               <>
                 <div className="review-intro">
                   <div>
-                    <h3>ตรวจข้อมูลจากบิล</h3>
+                    <h3>กรอกและตรวจข้อมูลจากบิล</h3>
                     <p role="status">{ocrNote}</p>
                   </div>
                   <button

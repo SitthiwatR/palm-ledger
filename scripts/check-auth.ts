@@ -86,6 +86,30 @@ async function checkAuth() {
   console.log(
     "Supabase Auth admin access: OK (read-only check; no account created).",
   );
+  if (process.argv.includes("--public-settings")) {
+    const response = await fetch(
+      new URL("/auth/v1/settings", process.env.SUPABASE_URL),
+      {
+        headers: {
+          apikey:
+            process.env.SUPABASE_ANON_KEY ||
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        },
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    if (!response.ok) throw new Error("Could not verify public Auth settings");
+    const settings = await response.json();
+    const summary = {
+      signupDisabled: settings.disable_signup === true,
+      anonymousEnabled: settings.external?.anonymous_users === true,
+    };
+    console.log("Public Auth settings:", JSON.stringify(summary));
+    if (!summary.signupDisabled || summary.anonymousEnabled)
+      throw new Error(
+        "Owner-only release requires public signup and anonymous sign-in disabled in Supabase Auth settings",
+      );
+  }
 }
 
 if (process.argv[1]?.endsWith("check-auth.ts")) {
