@@ -102,7 +102,40 @@ const schemas = {
       rateBaht: z.string().regex(/^\d{1,6}(?:\.\d{1,2})?$/),
     })
     .strict(),
-  "opening-debts": base.extend({ ...common, amountBaht: amount }).strict(),
+  "opening-debts": base
+    .extend({ ...common, gardenId: z.uuid().nullable(), amountBaht: amount })
+    .strict(),
+};
+const legacyCommon = {
+  ...common,
+  gardenId: z.uuid().nullable(),
+  amountBaht: amount,
+};
+const manualSchemas = {
+  sales: base
+    .extend({
+      ...common,
+      invoiceNumber: z.string().trim().min(1).max(80),
+      amountBaht: amount,
+      receivedFull: z.literal(true),
+      confirmDuplicate: z.boolean().default(false),
+      ...linked,
+    })
+    .strict(),
+  expenses: base
+    .extend({
+      ...legacyCommon,
+      kind: expenseRequest.shape.kind,
+      allocations: allocation.optional(),
+    })
+    .strict(),
+  "sale-labor": base
+    .extend({
+      ...common,
+      mode: z.enum(["daily", "weight"]),
+      amountBaht: amount,
+    })
+    .strict(),
 };
 const voidSchema = base
   .extend({
@@ -179,15 +212,12 @@ async function detail(
           )
         ).rows
       : [];
-  const receipts =
-    source === "sales" || source === "expenses"
-      ? (
-          await db.query(
-            `select id,mime_type from public.receipt_files where ${source === "sales" ? "sale_id" : "expense_id"}=$1 and owner_id=$2`,
-            [id, owner.id],
-          )
-        ).rows
-      : [];
+  const receipts = (
+    await db.query(
+      `select id,mime_type from public.receipt_files where ${source === "sales" ? "sale_id" : source === "expenses" ? "expense_id" : source === "sale-labor" ? "sale_labor_id" : "opening_debt_id"}=$1 and owner_id=$2`,
+      [id, owner.id],
+    )
+  ).rows;
   const events = (
     await db.query(
       "select action,before_data,after_data,created_at from public.audit_events where owner_id=$1 and entity_id=any($2::uuid[]) order by created_at,id",
@@ -265,9 +295,13 @@ async function mutate(
   isVoid: boolean,
   deps: Dependencies,
 ) {
-  const input: Row = (isVoid ? voidSchema : schemas[source]).parse(
-    await deps.body(req),
-  );
+  const input: Row = (
+    isVoid
+      ? voidSchema
+      : source === "opening-debts"
+        ? schemas[source]
+        : z.union([schemas[source], manualSchemas[source]])
+  ).parse(await deps.body(req));
   return deps.write(
     req,
     owner,
@@ -347,7 +381,69 @@ async function mutate(
           note: input.note,
         };
         try {
-          if (source === "sales") {
+          if (input.amountBaht && source !== "opening-debts") {
+            const unknown =
+              source === "sales"
+                ? before.net_weight_grams === null
+                : source === "expenses"
+                  ? before.quantity_milli === null
+                  : before.basis_units === null;
+            if (!before.legacy_details || !unknown)
+              fail(
+                "CALCULATION_REQUIRED",
+                "รายการนี้ต้องคำนวณจากจำนวนและอัตรา",
+                422,
+              );
+            const total = minor(input.amountBaht);
+            if (source === "sales") {
+              if (
+                !input.confirmDuplicate &&
+                (before.garden_id !== input.gardenId ||
+                  before.invoice_number.toLowerCase() !==
+                    input.invoiceNumber.toLowerCase())
+              ) {
+                const duplicate = await db.query(
+                  "select id from public.sales where owner_id=$1 and garden_id=$2 and lower(invoice_number)=lower($3) and id<>$4 and voided_at is null",
+                  [owner.id, input.gardenId, input.invoiceNumber, id],
+                );
+                if (duplicate.rowCount)
+                  fail(
+                    "DUPLICATE_BILL",
+                    "อาจมีบิลเลขนี้ในสวนที่เลือกแล้ว กรุณาตรวจรายการก่อนยืนยันใช้เลขบิลซ้ำ",
+                  );
+              }
+              const { payee, ...rest } = changes;
+              changes = {
+                ...rest,
+                buyer: payee,
+                sale_date: input.date,
+                invoice_number: input.invoiceNumber,
+                net_minor: total,
+                gross_minor: total + Number(before.deductions_minor),
+              };
+            } else if (source === "expenses")
+              changes = {
+                ...changes,
+                expense_date: input.date,
+                kind: input.kind,
+                unit:
+                  input.kind === "daily_labor"
+                    ? "day"
+                    : input.kind === "weight_labor"
+                      ? "kg"
+                      : input.kind === "fertilizer"
+                        ? "sack"
+                        : "item",
+                amount_minor: total,
+              };
+            else
+              changes = {
+                ...changes,
+                labor_date: input.date,
+                mode: input.mode,
+                amount_minor: total,
+              };
+          } else if (source === "sales") {
             if (
               !input.confirmDuplicate &&
               (before.garden_id !== input.gardenId ||

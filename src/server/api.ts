@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createHash, randomUUID } from "node:crypto";
 import { calculateExpense, expenseRequest } from "../lib/expense-math";
 import { calculateLabor } from "../lib/sale-math";
+import { validImageSignature } from "../lib/image-signature";
 import type { PoolClient } from "pg";
 import {
   AppError,
@@ -18,6 +19,7 @@ import {
 } from "./auth";
 import { pool, transaction } from "./db";
 import { entryRoutes } from "./entries";
+import { transferRoutes } from "./recovery/api";
 
 const uuid = z.uuid();
 const name = z
@@ -148,10 +150,16 @@ function saleDto(
     saleDate: row.sale_date,
     buyer: row.buyer,
     invoiceNumber: row.invoice_number,
-    weightKg: (Number(row.net_weight_grams) / 1000)
-      .toFixed(3)
-      .replace(/\.?0+$/, ""),
-    priceBahtPerKg: (Number(row.price_minor_per_kg) / 100).toFixed(2),
+    weightKg:
+      row.net_weight_grams === null
+        ? null
+        : (Number(row.net_weight_grams) / 1000)
+            .toFixed(3)
+            .replace(/\.?0+$/, ""),
+    priceBahtPerKg:
+      row.price_minor_per_kg === null
+        ? null
+        : (Number(row.price_minor_per_kg) / 100).toFixed(2),
     grossMinor: Number(row.gross_minor),
     deductionsMinor: Number(row.deductions_minor),
     netMinor: Number(row.net_minor),
@@ -161,11 +169,15 @@ function saleDto(
     })),
     labor: labor.map((item) => ({
       id: item.id,
+      unknownCalculation: item.basis_units === null,
       mode: item.mode,
       payee: item.payee,
-      quantity: String(
-        Number(item.basis_units) / (item.mode === "daily" ? 2 : 1000),
-      ),
+      quantity:
+        item.basis_units === null
+          ? "ไม่ทราบจำนวนเดิม"
+          : String(
+              Number(item.basis_units) / (item.mode === "daily" ? 2 : 1000),
+            ),
       rateBaht: (Number(item.rate_minor) / 100).toFixed(2),
       amountMinor: Number(item.amount_minor),
       paidMinor: Number(item.paid_minor ?? 0),
@@ -180,30 +192,6 @@ function saleDto(
         }
       : null,
   };
-}
-function validImageSignature(bytes: Buffer, mime: string) {
-  if (mime === "image/jpeg")
-    return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  if (mime === "image/png")
-    return bytes
-      .subarray(0, 8)
-      .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-  if (mime === "image/webp")
-    return (
-      bytes.toString("ascii", 0, 4) === "RIFF" &&
-      bytes.toString("ascii", 8, 12) === "WEBP"
-    );
-  if (mime === "image/heic" || mime === "image/heif") {
-    const boxType = bytes.toString("ascii", 4, 8);
-    const brand = bytes.toString("ascii", 8, 12);
-    const compatible = bytes.toString("ascii", 16, Math.min(bytes.length, 40));
-    return (
-      boxType === "ftyp" &&
-      /^(heic|heix|hevc|hevx|heim|heis|heif|mif1|msf1)$/.test(brand) &&
-      /heic|heix|hevc|hevx|heim|heis|heif|mif1|msf1/.test(compatible)
-    );
-  }
-  return false;
 }
 async function deletePendingStorage(key: string) {
   const result = await supabase(true)
@@ -716,7 +704,7 @@ async function listExpenses(owner: Owner) {
       `select e.*,to_char(e.expense_date,'YYYY-MM-DD') business_date,g.name garden_name,
     ${allocationJson("e")} allocations,
     coalesce((select sum(p.amount_minor) from public.expense_payments p where p.expense_id=e.id and p.owner_id=e.owner_id and p.voided_at is null),0)::text paid_minor,
-    coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'paymentDate',to_char(p.payment_date,'YYYY-MM-DD'),'amountMinor',p.amount_minor,'voidedAt',p.voided_at,'voidReason',p.void_reason) order by p.created_at,p.id) from public.expense_payments p where p.expense_id=e.id and p.owner_id=e.owner_id),'[]'::jsonb) payments,
+    coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'paymentDate',to_char(p.payment_date,'YYYY-MM-DD'),'amountMinor',p.amount_minor,'voidedAt',p.voided_at,'voidReason',p.void_reason,'legacyDateUnknown',p.legacy_date_unknown) order by p.created_at,p.id) from public.expense_payments p where p.expense_id=e.id and p.owner_id=e.owner_id),'[]'::jsonb) payments,
     (select r.id from public.receipt_files r where r.expense_id=e.id and r.owner_id=e.owner_id limit 1) receipt_id
     from public.expenses e left join public.gardens g on g.id=e.garden_id and g.owner_id=e.owner_id
     where e.owner_id=$1 and e.voided_at is null order by e.expense_date desc,e.created_at desc limit 200`,
@@ -735,8 +723,12 @@ async function listExpenses(owner: Owner) {
       payee: r.payee,
       note: r.note,
       unit: r.unit,
-      quantity: String(Number(r.quantity_milli) / 1000),
-      rateBaht: (Number(r.rate_minor) / 100).toFixed(2),
+      quantity:
+        r.quantity_milli === null
+          ? null
+          : String(Number(r.quantity_milli) / 1000),
+      rateBaht:
+        r.rate_minor === null ? null : (Number(r.rate_minor) / 100).toFixed(2),
       amountMinor: Number(r.amount_minor),
       paidMinor: Number(r.paid_minor),
       pendingMinor: Number(r.amount_minor) - Number(r.paid_minor),
@@ -979,7 +971,7 @@ async function listPayables(owner: Owner) {
     from sources s left join public.gardens g on g.id=s.garden_id and g.owner_id=s.owner_id
     left join public.expenses e on s.source='expenses' and e.id=s.id and e.owner_id=s.owner_id
     left join lateral (select sum(p.amount_minor) filter(where p.voided_at is null) paid,
-      jsonb_agg(jsonb_build_object('id',p.id,'paymentDate',to_char(p.payment_date,'YYYY-MM-DD'),'amountMinor',p.amount_minor,'voidedAt',p.voided_at,'voidReason',p.void_reason) order by p.created_at,p.id) payments
+      jsonb_agg(jsonb_build_object('id',p.id,'paymentDate',to_char(p.payment_date,'YYYY-MM-DD'),'amountMinor',p.amount_minor,'voidedAt',p.voided_at,'voidReason',p.void_reason,'legacyDateUnknown',p.legacy_date_unknown) order by p.created_at,p.id) payments
       from public.expense_payments p where p.owner_id=s.owner_id and
       ((s.source='expenses' and p.expense_id=s.id) or (s.source='sale-labor' and p.sale_labor_id=s.id) or (s.source='opening-debts' and p.opening_debt_id=s.id))) p on true
     order by s.business_date desc,s.id`,
@@ -1008,7 +1000,7 @@ async function overview(owner: Owner) {
     coalesce((select sum(net_minor) from balances),0)-s.amount_minor net_minor,
     (select count(*) from balances)::int garden_count,
     coalesce((select sum(labor_pending_minor) from balances),0) labor_pending_minor,
-    coalesce((select sum(debt_pending_minor) from balances),0) debt_pending_minor,
+    coalesce((select sum(debt_pending_minor) from balances),0)+coalesce((select sum(d.amount_minor-coalesce(p.paid,0)) from public.opening_debts d left join lateral(select sum(amount_minor) paid from public.expense_payments where opening_debt_id=d.id and owner_id=d.owner_id and voided_at is null) p on true where d.owner_id=$1 and d.garden_id is null and d.voided_at is null),0) debt_pending_minor,
     coalesce((select sum(expense_pending_minor) from balances),0)+s.pending_minor expense_pending_minor,
     s.amount_minor shared_unallocated_minor,s.pending_minor shared_unallocated_pending_minor from shared s`,
       [owner.id],
@@ -1335,6 +1327,11 @@ export async function handle(
       return response;
     }
     const owner = await authenticate(token);
+    const transferResponse = await transferRoutes(req, owner, path, {
+      body,
+      checkImage: validImageSignature,
+    });
+    if (transferResponse) return transferResponse;
     const entryResponse = await entryRoutes(req, owner, path, {
       body,
       write: paymentWrite,
@@ -1395,7 +1392,7 @@ export async function handle(
       const lastLabor = latest
         ? (
             await pool().query(
-              "select mode,payee,rate_minor,basis_units from public.sale_labor where sale_id=$1 and owner_id=$2 and voided_at is null order by created_at,id",
+              "select mode,payee,rate_minor,basis_units from public.sale_labor where sale_id=$1 and owner_id=$2 and voided_at is null and rate_minor is not null order by created_at,id",
               [latest.id, owner.id],
             )
           ).rows

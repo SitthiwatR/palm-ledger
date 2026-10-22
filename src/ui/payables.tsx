@@ -27,6 +27,7 @@ export type Payable = {
   payments: Payment[];
 };
 type Payment = {
+  legacyDateUnknown?: boolean;
   id: string;
   paymentDate: string;
   amountMinor: number;
@@ -249,7 +250,10 @@ export function Payables({
               {e.payments.map((p) => (
                 <div className="payment-history" key={p.id}>
                   <p>
-                    {dateText(p.paymentDate)} · {money(p.amountMinor)} บาท ·{" "}
+                    {p.legacyDateUnknown
+                      ? "ยอดจ่ายสะสมเดิม (ไม่ทราบวันจ่าย)"
+                      : dateText(p.paymentDate)}{" "}
+                    · {money(p.amountMinor)} บาท ·{" "}
                     {p.voidedAt ? "ยกเลิกแล้ว" : "มีผล"}
                   </p>
                   {p.voidedAt ? (
@@ -460,7 +464,10 @@ function DebtDialog({
           ) : (
             <p>
               ยกเลิกยอด {money(action.payment.amountMinor)} บาท วันที่{" "}
-              {dateText(action.payment.paymentDate)} จะคืนยอดค้างเป็น{" "}
+              {action.payment.legacyDateUnknown
+                ? "ยอดจ่ายสะสมเดิม (ไม่ทราบวันที่จ่าย)"
+                : dateText(action.payment.paymentDate)}{" "}
+              จะคืนยอดค้างเป็น{" "}
               {money(action.entry.pendingMinor + action.payment.amountMinor)}{" "}
               บาท และเก็บประวัติเดิมไว้ นี่เป็นการแก้บันทึก
               ไม่ได้โอนหรือคืนเงินจริง

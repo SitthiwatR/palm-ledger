@@ -2211,3 +2211,59 @@ svg {
     width: 100%;
   }
 }
+
+.data-tools {
+  max-width: 840px;
+  margin-inline: auto;
+  padding-bottom: 3rem;
+}
+.data-tools > section {
+  margin-block: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--line);
+}
+.data-tools h2 {
+  margin-block: 1rem;
+}
+.data-tools p {
+  overflow-wrap: anywhere;
+}
+.data-tools select {
+  width: 100%;
+  min-height: 50px;
+  padding: 10px 13px;
+  font: inherit;
+  border: 1px solid #d7dfd0;
+  border-radius: 10px;
+  background: #fff;
+}
+.data-tools .check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.data-tools .check input {
+  width: 22px;
+  min-height: 22px;
+  flex: 0 0 22px;
+  accent-color: #16513e;
+  margin-top: 3px;
+}
+.transfer-summary,
+.transfer-preview {
+  background: #f0f5ec;
+  border: 1px solid #d7dfd0;
+  border-radius: 14px;
+  padding: 1rem;
+  margin-block: 1rem;
+  overflow-wrap: anywhere;
+}
+.data-tools input[type="file"] {
+  max-width: 100%;
+  min-width: 0;
+}
+.data-tools summary {
+  min-height: 44px;
+  cursor: pointer;
+  padding-block: 0.75rem;
+}

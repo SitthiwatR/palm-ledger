@@ -2,7 +2,7 @@
 
 > Source PRD: [สเปก Palm Ledger](../app-spec.md) · [User flow](../user-flow.md)
 >
-> แผนปรับตามคำขอให้เหลือ 10 ขั้น วันที่ 20 ตุลาคม 2569 (Asia/Bangkok) อัปเดตสถานะ 21 ตุลาคม 2569: **ขั้น 1–3 ผู้ใช้รับงานและให้ปิดเฟสแล้ว → ขั้น 4 implement และทดสอบแล้ว รอผู้ใช้ตรวจรับ; คุณภาพ OCR ไม่ดี ย้ายปรับปรุงไปขั้น 10 พร้อมตรวจ iPhone/Safari และเป้าหมาย 1 นาที** ยังไม่ได้สร้าง issues ดู [เอกสารส่งต่องานขั้น 4](../docs/handoff-phase4.md)
+> แผนพัฒนา 10 ขั้น อัปเดต 22 ตุลาคม 2569: **ขั้น 1–3 ผู้ใช้รับงานและปิดแล้ว; ขั้น 4–7 implement และได้รับอนุญาตเดินต่อถึงขั้น 8 แล้ว; ขั้น 8 implement และทดสอบแล้ว รอตรวจรับ** ดู [handoff ขั้น 8](../docs/handoff-phase8.md) และ [คู่มือสำรอง/กู้คืน](../docs/backup-recovery.md) งาน OCR และ iPhone/Safari จริงยังขั้น 10
 >
 > ใช้แนวทาง [prd-to-plan ของ Matt Pocock](https://github.com/mattpocock/skills/blob/4dd409d177767ca942eddaff5db577b33e549101/prd-to-plan/SKILL.md) รวมช่วงที่เกี่ยวข้องจากร่างเดิม 21 ช่วง โดยเก็บขอบเขตเดิมครบ
 
@@ -208,7 +208,7 @@
 
 ## Phase 7: แก้ไขรายการ รายงาน และ CSV
 
-**สถานะ: implement และทดสอบแล้ว รอผู้ใช้ตรวจรับ** ดู [handoff Phase 7](../docs/handoff-phase7.md)
+**สถานะ: ผู้ใช้รับงานแล้วและอนุญาต Phase 8 วันที่ 22 ตุลาคม 2569** ดู [handoff Phase 7](../docs/handoff-phase7.md)
 
 **ผลตรวจ:** model 4/4; unit/API/CLI 64/64 กับ production build รวม upgrade preservation; full Chromium production build 12 ผ่าน + 1 ข้าม (รูป OCR ส่วนตัวไม่ได้ส่งเข้า) และตรวจ Phase 7 ซ้ำหลังเพิ่มรายละเอียด audit; typecheck/format/build/diff ผ่าน ไม่มี test writes บน production
 
@@ -233,6 +233,10 @@
 
 ## Phase 8: สำรอง กู้คืน และย้ายข้อมูลต้นแบบ
 
+**สถานะ: implement และทดสอบแล้ว รอผู้ใช้ตรวจรับ** ดู [handoff Phase 8](../docs/handoff-phase8.md) และ [คู่มือใช้งาน/ซ้อมกู้](../docs/backup-recovery.md) หน้า `/tools` สร้างชุดเข้ารหัสรวมรูป ตรวจ preview และนำเข้า JSON ต้นแบบ Full restore ใช้ CLI ลง Supabase ใหม่ที่ว่างก่อนตรวจบัญชี/ยอด/รูปและสลับใช้งาน ไม่แทนข้อมูล production ผ่านเว็บ
+
+**ผลตรวจ:** model 4/4, unit/API/CLI 72/72 กับ production build รวม Supabase สองชุดจริงและ upgrade preservation; full Chromium 13 ผ่าน + 1 ข้าม; typecheck/format/build/diff ผ่าน; SHA/deployment ดู handoff ไม่สร้าง test fixtures บน production
+
 **User stories:** 41, 42
 
 **ขึ้นกับ:** 7
@@ -243,10 +247,10 @@
 
 ### Acceptance criteria
 
-- [ ] สำรองฐานและรูปพร้อม manifest/checksum แล้วกู้ในสภาพแวดล้อมใหม่ได้ครบ รวมข้อมูลเชื่อมบัญชีที่จำเป็นต่อการเข้าถึง
-- [ ] ชุดสำรองเสียหรือรูปขาดไม่แทนข้อมูลเดิม กู้คืนลงพื้นที่ใหม่และตรวจผลก่อนสลับใช้งาน
-- [ ] JSON จากต้นแบบแยกข้อมูลตัวอย่าง/ข้อมูลจริง ตรวจ version และ duplicate IDs พร้อม preview ก่อนยืนยัน
-- [ ] paid เดิมที่ไม่มี payment rows ถูกแปลงโดยยอดสุทธิและค้างก่อน/หลังตรงกัน และรูปต้นฉบับที่นำเข้าตรวจเปิดได้
+- [x] สำรองฐานและรูปพร้อม manifest/checksum แล้วกู้ในสภาพแวดล้อมใหม่ได้ครบ รวมข้อมูลเชื่อมบัญชีที่จำเป็นต่อการเข้าถึง
+- [x] ชุดสำรองเสียหรือรูปขาดไม่แทนข้อมูลเดิม กู้คืนลงพื้นที่ใหม่และตรวจผลก่อนสลับใช้งาน
+- [x] JSON จากต้นแบบแยกข้อมูลตัวอย่าง/ข้อมูลจริง ตรวจ version และ duplicate IDs พร้อม preview ก่อนยืนยัน
+- [x] paid เดิมที่ไม่มี payment rows ถูกแปลงโดยยอดสุทธิและค้างก่อน/หลังตรงกัน และรูปต้นฉบับที่นำเข้าตรวจเปิดได้
 
 ---
 

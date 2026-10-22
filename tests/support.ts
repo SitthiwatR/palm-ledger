@@ -40,7 +40,22 @@ export async function prepare() {
     await supabase(true).auth.admin.deleteUser(user.id);
   return manageOwner("create", username, password);
 }
-export async function startApp(): Promise<ChildProcess> {
+export async function startApp(
+  overrides?: Record<string, string>,
+): Promise<ChildProcess> {
+  const appEnv = overrides ?? testEnv;
+  if (
+    overrides &&
+    (overrides.PALM_TEST_ENVIRONMENT !== "true" ||
+      overrides.PALM_RECOVERY_TARGET !== "true" ||
+      overrides.APP_URL !== "http://127.0.0.1:3200" ||
+      overrides.SUPABASE_URL !== "http://127.0.0.1:55421" ||
+      new URL(overrides.DATABASE_URL).hostname !== "127.0.0.1" ||
+      new URL(overrides.DATABASE_URL).port !== "55422")
+  )
+    throw new Error(
+      "Refusing to start a recovery app outside the separate local test stack",
+    );
   const child = spawn(
     process.execPath,
     [
@@ -49,15 +64,15 @@ export async function startApp(): Promise<ChildProcess> {
       "--hostname",
       "127.0.0.1",
       "--port",
-      "3100",
+      overrides ? "3200" : "3100",
     ],
     {
       env: {
         ...process.env,
-        ...testEnv,
+        ...appEnv,
         NEXT_TELEMETRY_DISABLED: "1",
         ...(process.env.TEST_USE_POSTGRES_URL === "1"
-          ? { DATABASE_URL: "", POSTGRES_URL: testEnv.DATABASE_URL }
+          ? { DATABASE_URL: "", POSTGRES_URL: appEnv.DATABASE_URL }
           : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -77,7 +92,7 @@ export async function startApp(): Promise<ChildProcess> {
         "Test app exited before readiness. Inspect local Next.js configuration.",
       );
     if (
-      await fetch(origin + "/login")
+      await fetch(appEnv.APP_URL + "/login")
         .then((r) => r.ok)
         .catch(() => false)
     )
@@ -90,7 +105,10 @@ export async function startApp(): Promise<ChildProcess> {
     "Test app did not become ready. Captured " + output.length + " log bytes.",
   );
 }
-export async function stopApp(child: ChildProcess | undefined) {
+export async function stopApp(
+  child: ChildProcess | undefined,
+  closeDatabase = true,
+) {
   if (child?.pid) {
     try {
       process.kill(-child.pid, "SIGTERM");
@@ -100,5 +118,5 @@ export async function stopApp(child: ChildProcess | undefined) {
       new Promise((resolve) => setTimeout(resolve, 3000)),
     ]);
   }
-  await pool().end();
+  if (closeDatabase) await pool().end();
 }

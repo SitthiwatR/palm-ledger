@@ -4,6 +4,7 @@ import { prepare, password, username, startApp, stopApp } from "../support";
 import { manageOwner } from "../../scripts/owner";
 import { receiptFixture, tableReceiptFixture } from "./receipt-fixture";
 import { readFileSync } from "node:fs";
+import { prototypeFixture } from "../prototype-fixture";
 
 let app: ChildProcess;
 test.beforeAll(async () => {
@@ -1209,6 +1210,136 @@ test("Phase 7 linked sale review opens labor separately and preserves its garden
   expect(after.record.voided_at).toBeNull();
   expect(after.pendingMinor).toBe(72000);
   expect(after.record.garden_id).toBe(ids[0]);
+});
+
+test("Phase 8 previews a real prototype, retains failed confirmation, imports photos, downloads encrypted backup and verifies recovery without replacing data", async ({
+  page,
+}) => {
+  test.setTimeout(150000);
+  page.setDefaultTimeout(20000);
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/login");
+  await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+  await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await page.goto("/gardens");
+  await page
+    .getByRole("link", { name: "สำรอง กู้คืน และย้ายข้อมูล", exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/tools$/);
+  const photo =
+    "data:image/png;base64," +
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/nV8AAAAASUVORK5CYII=",
+      "base64",
+    ).toString("base64");
+  const fixture = prototypeFixture("UI-Phase8", photo),
+    before = await (await page.request.get("/api/v1/summary")).json();
+  await page.getByLabel("เลือกไฟล์", { exact: true }).setInputFiles({
+    name: "prototype.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(fixture)),
+  });
+  await page
+    .getByRole("button", { name: "ตรวจตัวอย่างก่อนยืนยัน", exact: true })
+    .click();
+  await expect(page.locator(".transfer-preview")).toContainText(
+    "ต้นแบบระบุ: ข้อมูลจริง",
+  );
+  await expect(page.locator(".transfer-preview")).toContainText("47,800.00");
+  await expect(page.locator(".transfer-preview")).toContainText("8,400.00");
+  await expect(page.locator(".transfer-preview")).toContainText("รูป 4");
+  await page
+    .getByLabel("ตรวจสวน ยอดก่อน/หลัง และรูปแล้ว ยืนยันเพิ่มข้อมูลชุดนี้")
+    .check();
+  await page.route("**/api/v1/recoveries/*/confirm", (r) => r.abort());
+  await page
+    .getByRole("button", { name: "ยืนยันนำเข้า JSON", exact: true })
+    .click();
+  await expect(page.locator(".error[role=alert]")).toContainText(
+    "ข้อมูลที่กรอกยังอยู่",
+  );
+  await expect(page.locator(".error[role=alert]")).toBeFocused();
+  await expect(
+    page.getByLabel("ตรวจสวน ยอดก่อน/หลัง และรูปแล้ว ยืนยันเพิ่มข้อมูลชุดนี้"),
+  ).toBeChecked();
+  await page.unroute("**/api/v1/recoveries/*/confirm");
+  await page
+    .getByRole("button", { name: "ยืนยันนำเข้า JSON", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText("นำเข้าแล้ว");
+  const after = await (await page.request.get("/api/v1/summary")).json();
+  expect(after.netMinor).toBe(before.netMinor + 4780000);
+  const secret = "ui-backup-passphrase-2026";
+  await page.getByLabel("รหัสชุดสำรอง", { exact: true }).fill(secret);
+  await page.getByLabel("ยืนยันรหัสชุดสำรอง", { exact: true }).fill(secret);
+  await page
+    .getByRole("button", { name: "สร้างชุดสำรองรวมรูป", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText(
+    "สำรองและตรวจ checksum ครบแล้ว",
+  );
+  const downloaded = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "ดาวน์โหลดชุดสำรองที่ตรวจแล้ว", exact: true })
+    .click();
+  const backup = await downloaded;
+  const bytes = readFileSync((await backup.path())!);
+  expect(bytes.subarray(0, 21).toString()).toContain("PALM-LEDGER-BACKUP-1");
+  expect(bytes.includes(Buffer.from('"encrypted_password"'))).toBeFalsy();
+  await page.getByLabel("ชนิดไฟล์").selectOption("restore");
+  await page.getByLabel("เลือกไฟล์", { exact: true }).setInputFiles({
+    name: "backup.palmbackup",
+    mimeType: "application/octet-stream",
+    buffer: bytes,
+  });
+  await page
+    .getByLabel("รหัสเปิดชุดสำรอง", { exact: true })
+    .fill(secret + "wrong");
+  await page
+    .getByRole("button", { name: "ตรวจตัวอย่างก่อนยืนยัน", exact: true })
+    .click();
+  await expect(page.locator(".error[role=alert]")).toContainText(
+    "รหัสชุดสำรองไม่ถูกต้อง",
+  );
+  await page.getByLabel("รหัสเปิดชุดสำรอง", { exact: true }).fill(secret);
+  await page
+    .getByRole("button", { name: "ตรวจตัวอย่างก่อนยืนยัน", exact: true })
+    .click();
+  await expect(page.locator(".transfer-preview")).toContainText("รูป");
+  await page
+    .getByLabel("ตรวจยอดและรูปแล้ว ยืนยันเตรียมชุดนี้สำหรับกู้คืนในระบบใหม่")
+    .check();
+  await page
+    .getByRole("button", { name: "ยืนยันชุดสำหรับกู้คืน", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText("ข้อมูลปัจจุบันยังอยู่");
+  expect(
+    (await (await page.request.get("/api/v1/summary")).json()).netMinor,
+  ).toBe(after.netMinor);
+  await page.setViewportSize({ width: 320, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
+  await page.screenshot({
+    path: "/tmp/palm-phase8-tools-mobile.png",
+    fullPage: true,
+  });
+  await page.goto("/records");
+  await expect(
+    page.getByRole("button", { name: "ค้นหา / แก้รายการ / รายงาน" }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".sale-row").filter({ hasText: "ขาย B" }),
+  ).toContainText("ยอดจากต้นแบบ ไม่ทราบฐานน้ำหนัก/ราคาเดิม");
+  await expect(
+    page.locator(".sale-row").filter({ hasText: "ขาย A" }),
+  ).toContainText("ยอดจากต้นแบบ ไม่ทราบฐานจำนวน/อัตรา");
+  expect(errors).toEqual([]);
 });
 
 test("failed saves keep form input, and administrator reset forces a new login", async ({

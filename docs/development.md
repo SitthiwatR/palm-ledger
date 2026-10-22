@@ -1,12 +1,14 @@
 # พัฒนาและทดสอบ Palm Ledger
 
-## สถานะล่าสุด — Phase 7
+## สถานะล่าสุด — Phase 8
 
-ผู้ใช้รับงาน Phase 6 และให้ทำ Phase 7 แล้ว หน้า `/records` มี **ค้นหา / แก้รายการ / รายงาน** สำหรับตัวกรอง รายงานรายสวน/รวม CSV ภาษาไทย และแก้/ยกเลิกต้นทางพร้อมประวัติ ดู [handoff Phase 7](handoff-phase7.md) สำหรับ API, migration และผลทดสอบ/deployment ล่าสุด รอผู้ใช้ตรวจรับ Phase 7
+ผู้ใช้รับงาน Phase 7 และอนุญาต Phase 8 แล้ว เปิด **สวน → สำรอง กู้คืน และย้ายข้อมูล** (`/tools`) เพื่อสร้างชุดสำรองเข้ารหัสรวมรูป ตรวจไฟล์ก่อนกู้ หรือ preview/นำเข้า JSON จากต้นแบบเดิม ดู [handoff Phase 8](handoff-phase8.md) และ [คู่มือสำรอง/กู้คืน](backup-recovery.md) รอผู้ใช้ตรวจรับ Phase 8
 
-ค่าแรงผูกบิลมีสวน/วันที่ snapshot แยก ไม่ย้ายหรือยกเลิกตามบิลเงียบ ๆ source version กันแท็บเก่า ยอดใหม่ห้ามต่ำกว่าที่จ่ายจริง ยกเลิกต้นทางและ payments ที่มีผลเป็น transaction เดียวพร้อม audit ชุดแบ่ง รูปและประวัติเดิมยังอยู่
+Full restore ใช้ CLI ใน Supabase ใหม่ที่ว่าง ตรวจบัญชีเดิม ยอด ประวัติและรูปก่อนสลับใช้งาน ปฏิเสธ production/ต้นทาง/ฐานไม่ว่างและ TLS ไม่ตรวจ certificate ชุดสำรองมีข้อมูลแอป/Auth identity/รูปพร้อม checksum แต่ไม่ export live sessions หรือ platform secrets ต้องเข้าสู่ระบบใหม่ ไม่เปลี่ยน credentials/encryption key/session production เดิม
 
-รายงาน/CSV ใช้ตัวกรองเดียวกัน แยกยอดยกมาและความเคลื่อนไหวชัดเจน ระบุค้างเป็นสถานะปัจจุบัน การจ่ายและหนี้ก่อนระบบไม่หักสุทธิซ้ำ รักษาส่วนกลาง/สูตรแบ่งสตางค์ของ [Phase 6](handoff-phase6.md)
+JSON ต้นแบบ version 1 แยกข้อมูลตัวอย่าง/จริง ตรวจซ้ำและ before/after ยอด แปลง paid ที่ไม่มีประวัติครั้งเดียวพร้อมป้ายไม่ทราบวันที่จ่าย น้ำหนัก/อัตราที่ต้นแบบไม่เก็บเป็น unknown ไม่แต่งหน่วย รักษาการแก้/ยกเลิกต้นทางและรายงาน/CSV ของ [Phase 7](handoff-phase7.md) รวมค้างส่วนกลาง/หนี้เดิมโดยไม่หักสุทธิซ้ำ
+
+สำรองอัตโนมัติรายวันนอกระบบหลักยัง Phase 9; OCR และ Safari/iPhone จริงยัง Phase 10 ไม่มี test writes บน production
 
 ## หลักฐาน Phase 5
 
@@ -170,7 +172,6 @@ node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts
 
 รอบ workflow รูปก่อน: model tests 4/4; unit/API/CLI tests 28/28 กับ PostgreSQL/Auth/PostgREST/Storage จริง; Chromium browser tests 5/5; `typecheck`, `format:check` และ production build ผ่าน Baseline Phase 2 บน `main` ที่ `911322c` ตรวจ Vercel ได้ READY พร้อม migration log หลังผู้ใช้เพิ่มสิทธิ์แล้ว รายละเอียด deployment รอบเปลี่ยน workflow อยู่ใน [receipt-first-workflow.md](receipt-first-workflow.md) ส่วน hosted sale flow และ Safari/WebKit บนอุปกรณ์จริงยังต้องตรวจแยก ผล local เหล่านี้ไม่ใช่หลักฐานว่าทดสอบบน production หรือบน iPhone แล้ว
 
-
 ## ผลตรวจ Phase 4 — 21 ตุลาคม 2569
 
 ดู [handoff](handoff-phase4.md): เพิ่ม `weight_labor` แยกบิลและเลือกจำอัตราเฉพาะรายการในฟอร์มขาย โดยใช้สูตร/ตารางค่าแรงเดิม ไม่เปลี่ยน OCR หรือ UI/Three.js
@@ -203,7 +204,6 @@ node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts
 
 รายละเอียด API/สูตร/ข้อจำกัดและ deployment ล่าสุดดู [handoff Phase 6](handoff-phase6.md) ผู้ใช้รับงาน Phase 6 แล้วและอนุญาต Phase 7 ไม่อ้างว่าผ่าน Safari/iPhone จริงหรือคุณภาพ extraction ซึ่งยัง Phase 10
 
-
 ## ผลตรวจ Phase 7 — 22 ตุลาคม 2569
 
 Model 4/4, unit/API/CLI 64/64 กับ production build รวม migration upgrade preservation, full Chromium production build 12 ผ่าน + 1 ข้าม และ targeted Phase 7 หลังเติม audit detail ดู [handoff Phase 7](handoff-phase7.md) สำหรับหลักฐานและ SHA/deployment ล่าสุด ไม่ใช้ผล Chromium แทน Safari/iPhone จริง
@@ -211,3 +211,7 @@ Model 4/4, unit/API/CLI 64/64 กับ production build รวม migration upg
 เพิ่ม migration `20261022000531_phase7_records_reports.sql` โดยไม่แก้ migrations เดิม ทุกรายการต้นทางมี version/soft void และค่าแรงผูกบิลมีสวน/วันที่ของตนเอง Reports ใช้ private invoker views ร่วมกับตัวกรองเดียวกันสำหรับ list/CSV ข้อมูลทดสอบอยู่ใน localhost แยก รวม database ชั่วคราวสำหรับทดสอบอัปเกรด ไม่ใช้ fixtures บน production
 
 Code Phase 7 `ed96e54` → Vercel `dpl_AfNWxQpfbQuUyHNAF2R4QQ4RYM25` READY; migration/build logs, SHA/repo/branch/alias, checksum/RLS/advisors, production HTTP/served JS และ preservation digest ผ่าน รายละเอียดใน handoff เอกสารผลตรวจอยู่ commit ถัดจาก code และต้องตรวจ deployment ของ HEAD ล่าสุดหลัง push เอกสารอีกครั้ง
+
+## ผลตรวจ Phase 8 — 22 ตุลาคม 2569
+
+Model 4/4 และ unit/API/CLI 72/72 กับ production build ผ่าน รวม restore จริงเข้า Supabase ทดสอบอีกชุดและ login ผ่าน username/password เดิม, rollback หลัง upload, retry/idempotency, owner/RLS และ upgrade preservation คู่มือมีคำสั่ง init/inspect/preview/restore และข้อจำกัด snapshot/ไฟล์ Full Chromium 13 ผ่าน + 1 ข้าม; typecheck/format/build/diff ผ่าน ดู SHA/deployment ล่าสุดใน [handoff Phase 8](handoff-phase8.md)

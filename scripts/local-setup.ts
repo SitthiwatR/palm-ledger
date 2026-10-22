@@ -4,10 +4,15 @@ import { execFileSync } from "node:child_process";
 import { parseEnv } from "node:util";
 import { Pool } from "pg";
 
-const test = process.argv.includes("--test");
-const filename = test ? ".env.test.local" : ".env.local";
-const apiPort = test ? 54421 : 54321,
-  dbPort = test ? 54422 : 54322;
+const recovery = process.argv.includes("--recovery-test");
+const test = recovery || process.argv.includes("--test");
+const filename = recovery
+  ? ".env.recovery.test.local"
+  : test
+    ? ".env.test.local"
+    : ".env.local";
+const apiPort = recovery ? 55421 : test ? 54421 : 54321,
+  dbPort = recovery ? 55422 : test ? 54422 : 54322;
 if (!existsSync(filename)) {
   const secret = randomBytes(32).toString("hex");
   const db = randomBytes(24).toString("hex"),
@@ -36,7 +41,8 @@ if (!existsSync(filename)) {
     [
       "PALM_LOCAL_DEVELOPMENT=true",
       `PALM_TEST_ENVIRONMENT=${test}`,
-      `APP_URL=http://127.0.0.1:${test ? 3100 : 3000}`,
+      `PALM_RECOVERY_TARGET=${recovery}`,
+      `APP_URL=http://127.0.0.1:${recovery ? 3200 : test ? 3100 : 3000}`,
       `SUPABASE_URL=http://127.0.0.1:${apiPort}`,
       `SUPABASE_ANON_KEY=${jwt("anon")}`,
       `SUPABASE_SERVICE_ROLE_KEY=${jwt("service_role")}`,
@@ -81,7 +87,11 @@ execFileSync(
   [
     "compose",
     "--project-name",
-    test ? "palm-ledger-test" : "palm-ledger-dev",
+    recovery
+      ? "palm-ledger-recovery-test"
+      : test
+        ? "palm-ledger-test"
+        : "palm-ledger-dev",
     "--env-file",
     filename,
     "-f",
@@ -103,7 +113,11 @@ execFileSync(
   [
     "compose",
     "--project-name",
-    test ? "palm-ledger-test" : "palm-ledger-dev",
+    recovery
+      ? "palm-ledger-recovery-test"
+      : test
+        ? "palm-ledger-test"
+        : "palm-ledger-dev",
     "--env-file",
     filename,
     "-f",
@@ -156,7 +170,11 @@ for (let attempt = 0; attempt < 60; attempt++) {
       [
         "compose",
         "--project-name",
-        test ? "palm-ledger-test" : "palm-ledger-dev",
+        recovery
+          ? "palm-ledger-recovery-test"
+          : test
+            ? "palm-ledger-test"
+            : "palm-ledger-dev",
         "--env-file",
         filename,
         "-f",

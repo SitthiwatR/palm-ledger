@@ -21,7 +21,9 @@ test("Phase 7 migration preserves every pre-existing column/ID including session
     const files = (await readdir("supabase/migrations"))
       .filter((f) => f.endsWith(".sql"))
       .sort();
-    for (const f of files.slice(0, -1))
+    for (const f of files.filter(
+      (f) => f < "20261022000531_phase7_records_reports.sql",
+    ))
       await target.query(await readFile("supabase/migrations/" + f, "utf8"));
     const owner = randomUUID(),
       g = randomUUID(),
@@ -133,9 +135,10 @@ test("Phase 7 migration preserves every pre-existing column/ID including session
         "select * from private.expense_attributions order by garden_id",
       )
     ).rows;
-    await target.query(
-      await readFile("supabase/migrations/" + files.at(-1), "utf8"),
-    );
+    for (const f of files.filter(
+      (f) => f >= "20261022000531_phase7_records_reports.sql",
+    ))
+      await target.query(await readFile("supabase/migrations/" + f, "utf8"));
     for (const snap of snapshots)
       assert.deepEqual(
         (

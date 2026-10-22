@@ -178,13 +178,15 @@ export async function manageOwner(
     throw new OwnerSetupError(stage, error);
   }
 }
-async function readPassword(): Promise<string> {
+export async function readPassword(
+  prompt = "New password (12+ characters, hidden): ",
+): Promise<string> {
   if (!stdin.isTTY) {
     let value = "";
     for await (const chunk of stdin) value += chunk;
     return value.replace(/\r?\n$/, "");
   }
-  stdout.write("New password (12+ characters, hidden): ");
+  stdout.write(prompt);
   stdin.setRawMode(true);
   stdin.resume();
   stdin.setEncoding("utf8");

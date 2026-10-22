@@ -4,7 +4,7 @@
 
 ## สถานะและขอบเขต
 
-ผู้ใช้รับงาน Phase 6 แล้วและอนุญาต Phase 7 ไม่ทำ Phase 1–6 ซ้ำ Phase 7 เพิ่มค้นหา/ตัวกรอง รายงาน CSV และแก้/ยกเลิกต้นทางทั้ง `sales`, `sale_labor`, `expenses`, `opening_debts` โดยรักษารูปและประวัติเดิม **รอผู้ใช้ตรวจรับ ไม่ปิดเฟสแทนผู้ใช้**
+ผู้ใช้รับงาน Phase 6 แล้วและอนุญาต Phase 7 ไม่ทำ Phase 1–6 ซ้ำ Phase 7 เพิ่มค้นหา/ตัวกรอง รายงาน CSV และแก้/ยกเลิกต้นทางทั้ง `sales`, `sale_labor`, `expenses`, `opening_debts` โดยรักษารูปและประวัติเดิม **ผู้ใช้รับงานแล้วและอนุญาต Phase 8 วันที่ 22 ตุลาคม 2569**
 
 หน้า `/records` กด **ค้นหา / แก้รายการ / รายงาน** เพื่อเปิดพื้นที่ตรวจย้อนหลัง กด **กลับหน้าบันทึก** กลับ workflow รูปก่อน/กรอกเองเดิม ไม่มีการแก้ OCR หรือ Three.js งาน extraction และ Safari/iPhone จริงยัง Phase 10
 
@@ -87,4 +87,4 @@ Git integration เริ่ม deployment อัตโนมัติในร�
 
 ## งานต่อ
 
-รอผู้ใช้ตรวจรับ Phase 7 ก่อนปิดเฟส/เดิน Phase 8 การสำรอง/กู้คืน Phase 8 ต้องรวม snapshot labor ใหม่, versions/void metadata, payment/allocations/audit และรูป/session ตามขอบเขตแผนเดิม งาน extraction/Safari/iPhone จริงยัง Phase 10
+ผู้ใช้รับงาน Phase 7 แล้วและอนุญาต Phase 8 ดู [handoff Phase 8](handoff-phase8.md) การสำรอง/กู้คืน Phase 8 ต้องรวม snapshot labor ใหม่, versions/void metadata, payment/allocations/audit และรูป/session ตามขอบเขตแผนเดิม งาน extraction/Safari/iPhone จริงยัง Phase 10

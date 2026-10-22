@@ -2,8 +2,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { pool } from "../src/server/db";
 
-export async function migrate() {
-  const db = await pool().connect();
+export async function migrate(dbPool = pool()) {
+  const db = await dbPool.connect();
   try {
     await db.query("begin");
     // Transaction-scoped locks also work through Supabase's transaction pooler.

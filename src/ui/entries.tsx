@@ -59,7 +59,7 @@ function editValues(d: Row) {
     ),
     rateBaht: baht(r.rate_minor),
     mode: r.mode ?? "daily",
-    amountBaht: baht(r.amount_minor),
+    amountBaht: baht(r.amount_minor ?? r.net_minor),
     allocations: d.allocations.map((a: Row) => ({
       gardenId: a.garden_id,
       amountBaht: baht(a.amount_minor),
@@ -209,11 +209,21 @@ function EntryDialog({
     if (key === "invoiceNumber" || key === "gardenId") setDuplicateAck(false);
     retry.current = null;
   }
+  const manual =
+    !!data?.record.legacy_details &&
+    (source === "sales"
+      ? data.record.net_weight_grams === null
+      : source === "expenses"
+        ? data.record.quantity_milli === null
+        : source === "sale-labor"
+          ? data.record.basis_units === null
+          : false);
   let preview: number | null = null;
   if (data)
     try {
-      preview =
-        source === "sales"
+      preview = manual
+        ? Math.round(Number(form.amountBaht) * 100)
+        : source === "sales"
           ? calculateSale(
               form.weightKg,
               form.priceBahtPerKg,
@@ -330,6 +340,34 @@ function EntryDialog({
             };
           else payload = { ...payload, amountBaht: form.amountBaht };
         }
+      }
+      if (mode === "edit" && manual) {
+        payload = {
+          expectedVersion: r.version,
+          reason,
+          gardenId: form.gardenId || null,
+          date: form.date,
+          payee: form.payee,
+          note: form.note,
+          amountBaht: form.amountBaht,
+          ...(source === "sales"
+            ? {
+                invoiceNumber: form.invoiceNumber,
+                receivedFull: true,
+                confirmDuplicate: duplicateAck,
+                acknowledgeLabor: laborAck,
+                laborVersions: data.labor.map((l: Row) => ({
+                  id: l.id,
+                  version: l.version,
+                })),
+              }
+            : source === "expenses"
+              ? {
+                  kind: form.kind,
+                  allocations: form.gardenId ? [] : form.allocations,
+                }
+              : { mode: form.mode }),
+        };
       }
       const path = `entries/${source}/${id}${mode === "void" ? "/void" : ""}`,
         method = mode === "void" ? "POST" : "PATCH";
@@ -455,7 +493,8 @@ function EntryDialog({
                       value={form.gardenId}
                       onChange={(e) => field("gardenId", e.target.value)}
                     >
-                      {source === "expenses" && (
+                      {(source === "expenses" ||
+                        source === "opening-debts") && (
                         <option value="">ส่วนกลาง</option>
                       )}
                       {gardens
@@ -485,7 +524,27 @@ function EntryDialog({
                       onChange={(e) => field("note", e.target.value)}
                     />
                   </label>
-                  {source === "sales" ? (
+                  {manual ? (
+                    <>
+                      {source === "sales" && text("invoiceNumber", "เลขบิล")}
+                      {duplicateWarning && (
+                        <label className="check">
+                          <input
+                            type="checkbox"
+                            checked={duplicateAck}
+                            onChange={(e) => setDuplicateAck(e.target.checked)}
+                          />
+                          ตรวจแล้วและยืนยันใช้เลขบิลซ้ำในสวนนี้
+                        </label>
+                      )}
+                      {text("amountBaht", "ยอดรวมจากต้นแบบ (บาท)", "number")}
+                      <p>
+                        ต้นแบบไม่มีฐานจำนวน/อัตราที่ตรงยอด
+                        เก็บยอดเดิมโดยไม่สมมติหน่วย
+                        สามารถแก้ยอดรวมพร้อมเหตุผลได้
+                      </p>
+                    </>
+                  ) : source === "sales" ? (
                     <>
                       {text("invoiceNumber", "เลขบิล")}
                       {duplicateWarning && (
@@ -774,39 +833,43 @@ function EntryDialog({
                     {r.invoice_number ? ` · บิล ${r.invoice_number}` : ""}
                   </p>
                   {r.note && <p>{r.note}</p>}
-                  {(source === "expenses" || source === "sale-labor") && (
-                    <p>
-                      {source === "sale-labor"
-                        ? Number(r.basis_units) /
-                          (r.mode === "daily" ? 2 : 1000)
-                        : Number(r.quantity_milli) / 1000}{" "}
-                      {source === "sale-labor"
-                        ? r.mode === "daily"
-                          ? "วัน"
-                          : "กก."
-                        : (
-                            {
-                              day: "วัน",
-                              kg: "กก.",
-                              sack: "กระสอบ",
-                              item: "รายการ",
-                            } as Record<string, string>
-                          )[r.unit]}{" "}
-                      · อัตรา {baht(r.rate_minor)}{" "}
-                      {source === "sale-labor"
-                        ? r.mode === "daily"
-                          ? "บาท/วัน"
-                          : "บาท/ตัน"
-                        : r.kind === "weight_labor"
-                          ? "บาท/ตัน"
-                          : r.kind === "daily_labor"
-                            ? "บาท/วัน"
-                            : r.kind === "fertilizer"
-                              ? "บาท/กระสอบ"
-                              : "บาท/รายการ"}
-                    </p>
+                  {manual && (
+                    <p>ยอดจากต้นแบบ: ไม่ทราบจำนวน/อัตราที่ตรงยอดเดิม</p>
                   )}
-                  {source === "sales" && (
+                  {!manual &&
+                    (source === "expenses" || source === "sale-labor") && (
+                      <p>
+                        {source === "sale-labor"
+                          ? Number(r.basis_units) /
+                            (r.mode === "daily" ? 2 : 1000)
+                          : Number(r.quantity_milli) / 1000}{" "}
+                        {source === "sale-labor"
+                          ? r.mode === "daily"
+                            ? "วัน"
+                            : "กก."
+                          : (
+                              {
+                                day: "วัน",
+                                kg: "กก.",
+                                sack: "กระสอบ",
+                                item: "รายการ",
+                              } as Record<string, string>
+                            )[r.unit]}{" "}
+                        · อัตรา {baht(r.rate_minor)}{" "}
+                        {source === "sale-labor"
+                          ? r.mode === "daily"
+                            ? "บาท/วัน"
+                            : "บาท/ตัน"
+                          : r.kind === "weight_labor"
+                            ? "บาท/ตัน"
+                            : r.kind === "daily_labor"
+                              ? "บาท/วัน"
+                              : r.kind === "fertilizer"
+                                ? "บาท/กระสอบ"
+                                : "บาท/รายการ"}
+                      </p>
+                    )}
+                  {source === "sales" && !manual && (
                     <p>
                       น้ำหนัก {Number(r.net_weight_grams) / 1000} กก. ×{" "}
                       {baht(r.price_minor_per_kg)} บาท/กก.
@@ -871,7 +934,10 @@ function EntryDialog({
                   <h3>ประวัติการจ่าย</h3>
                   {data.payments.map((p: Row) => (
                     <p key={p.id}>
-                      {p.payment_date} · {money(Number(p.amount_minor))} บาท ·{" "}
+                      {p.legacy_date_unknown
+                        ? "ยอดจ่ายสะสมเดิม (ไม่ทราบวันที่จ่าย)"
+                        : p.payment_date}{" "}
+                      · {money(Number(p.amount_minor))} บาท ·{" "}
                       {p.voided_at ? `ยกเลิก: ${p.void_reason}` : "มีผล"}
                     </p>
                   ))}

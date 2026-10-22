@@ -15,6 +15,17 @@ import { hash, supabase } from "../src/server/auth";
 import { manageOwner } from "../scripts/owner";
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
+import { databasePool } from "../src/server/db";
+import { migrate } from "../scripts/migrate";
+import {
+  decryptArchive,
+  encryptArchive,
+  sha,
+} from "../src/server/recovery/format";
+import { restoreToEmptyEnvironment } from "../src/server/recovery/restore";
+import { prototypeFixture } from "./prototype-fixture";
+import { createArchive } from "../src/server/recovery/data";
 
 let app: ChildProcess,
   cookie = "",
@@ -2440,6 +2451,765 @@ test("phase seven opening debt edits and void never change net and private views
         !r.prosecdef && !r.client && r.proconfig.includes('search_path=""'),
     ),
   );
+});
+
+const backupPassword = "phase8-fixture-passphrase-2026";
+let phase8Archive: Buffer;
+async function transferUpload(
+  value: unknown,
+  kind: "prototype" | "restore" = "prototype",
+  uploadKey = randomUUID(),
+) {
+  const bytes = Buffer.isBuffer(value)
+    ? value
+    : Buffer.from(JSON.stringify(value));
+  const r = await request(
+    "recoveries/upload-url",
+    "POST",
+    { kind, sizeBytes: bytes.length },
+    { "Idempotency-Key": uploadKey },
+  );
+  assert.equal(r.response.status, 200);
+  const client = createClient(r.data.supabaseUrl, r.data.anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const result = await client.storage
+    .from(r.data.bucket)
+    .uploadToSignedUrl(r.data.path, r.data.token, bytes, {
+      contentType:
+        kind === "prototype" ? "application/json" : "application/octet-stream",
+    });
+  assert.ok(!result.error);
+  return r.data.id as string;
+}
+const preview8 = (id: string, extra: Record<string, unknown> = {}) =>
+  request(`recoveries/${id}/preview`, "POST", extra);
+const confirm8 = (
+  id: string,
+  previewHash: string,
+  extra: Record<string, unknown> = {},
+  key = randomUUID(),
+) =>
+  request(
+    `recoveries/${id}/confirm`,
+    "POST",
+    { previewHash, acknowledge: true, ...extra },
+    { "Idempotency-Key": key },
+  );
+
+test("phase eight prototype preview preserves totals, converts missing paid history once and imports original photos and linked labor", async () => {
+  const fixture = prototypeFixture(
+    "phase8-main",
+    "data:image/png;base64," + Buffer.from(png).toString("base64"),
+  );
+  const before = (await request("summary")).data,
+    id = await transferUpload(fixture),
+    preview = await preview8(id);
+  assert.equal(preview.response.status, 200, JSON.stringify(preview.data));
+  assert.equal(preview.data.summary.demo, false);
+  assert.equal(preview.data.summary.netMinor, 4780000);
+  assert.equal(preview.data.summary.pendingMinor, 840000);
+  assert.equal(preview.data.summary.photos, 4);
+  assert.equal((await request("summary")).data.netMinor, before.netMinor);
+  const key = randomUUID(),
+    results = await Promise.all([
+      confirm8(id, preview.data.previewHash, {}, key),
+      confirm8(id, preview.data.previewHash, {}, key),
+    ]);
+  assert.ok(
+    results.every((r) => r.response.status === 200),
+    JSON.stringify(results.map((r) => r.data.error?.code)),
+  );
+  assert.deepEqual(results[0].data, results[1].data);
+  assert.equal(
+    (await confirm8(id, preview.data.previewHash, { allowDemo: true }, key))
+      .response.status,
+    409,
+  );
+  const again = await confirm8(id, preview.data.previewHash);
+  assert.equal(again.response.status, 200);
+  assert.equal(
+    (await request("summary")).data.netMinor,
+    before.netMinor + 4780000,
+  );
+  const after = (await request("summary")).data;
+  assert.equal(
+    after.laborPendingMinor +
+      after.expensePendingMinor +
+      after.openingDebtPendingMinor,
+    before.laborPendingMinor +
+      before.expensePendingMinor +
+      before.openingDebtPendingMinor +
+      840000,
+  );
+  const maps = (
+    await pool().query(
+      "select entity_type,legacy_id,target_id from private.legacy_imports where transfer_id=$1",
+      [id],
+    )
+  ).rows;
+  assert.equal(maps.length, 10);
+  const teamId = maps.find(
+    (m) => m.legacy_id === "phase8-mainteam-a",
+  ).target_id;
+  const team = (await request(`entries/sale-labor/${teamId}`)).data;
+  assert.equal(team.record.basis_units, null);
+  assert.equal(team.record.rate_minor, null);
+  assert.equal(team.pendingMinor, 420000);
+  assert.equal(team.payments.length, 1);
+  assert.equal(team.payments[0].legacy_date_unknown, true);
+  assert.equal(team.receipts.length, 1);
+  for (const r of (
+    await pool().query(
+      "select id,storage_key,sha256 from public.receipt_files where id=any($1::uuid[])",
+      [
+        (
+          await pool().query(
+            "select id from public.receipt_files where owner_id=$1 and storage_key like '%/imports/%'",
+            [ownerId],
+          )
+        ).rows.map((r) => r.id),
+      ],
+    )
+  ).rows) {
+    const signed = await request("receipts/" + r.id);
+    assert.equal(signed.response.status, 200);
+    assert.equal(
+      hash(
+        Buffer.from(
+          await (await fetch(signed.data.url)).arrayBuffer(),
+        ).toString("hex"),
+      ),
+      hash(Buffer.from(png).toString("hex")),
+    );
+  }
+  const saleId = maps.find(
+      (m) => m.legacy_id === "phase8-mainsale-b",
+    ).target_id,
+    unknown = (await request(`entries/sales/${saleId}`)).data;
+  assert.equal(unknown.record.net_weight_grams, null);
+  const edit = await write7(`sales/${saleId}`, {
+    gardenId: unknown.record.garden_id,
+    date: unknown.record.date,
+    payee: "ขาย B แก้",
+    note: "แก้ยอดเดิม",
+    invoiceNumber: unknown.record.invoice_number,
+    amountBaht: "31000",
+    receivedFull: true,
+    expectedVersion: 1,
+    reason: "ตรวจยอดต้นแบบ",
+  });
+  assert.equal(edit.response.status, 200, JSON.stringify(edit.data));
+  const teamEdit = await write7(`sale-labor/${teamId}`, {
+    gardenId: team.record.garden_id,
+    date: team.record.date,
+    payee: team.record.payee,
+    note: team.record.note,
+    mode: "weight",
+    amountBaht: "17000",
+    expectedVersion: 1,
+    reason: "แก้ยอดทีมเดิม",
+  });
+  assert.equal(teamEdit.response.status, 200);
+  assert.equal(
+    (
+      await pool().query(
+        "select count(*) n from public.expenses where legacy_details->>'id'='phase8-mainteam-a'",
+      )
+    ).rows[0].n,
+    "0",
+  );
+  const shared = {
+    version: 1,
+    demo: false,
+    gardens: [
+      {
+        id: "phase8-shared-garden",
+        name: "phase8-shared-debt",
+        opening: 500000,
+      },
+    ],
+    records: [
+      {
+        id: "phase8-shared-debt-record",
+        garden: "shared",
+        kind: "expense",
+        title: "หนี้เดิมส่วนกลาง",
+        date: "2026-01-01",
+        category: "other",
+        amount: 100000,
+        paid: 10000,
+        opening: true,
+        payments: [],
+      },
+    ],
+  };
+  const sharedBefore = (await request("summary")).data,
+    sharedId = await transferUpload(shared),
+    sharedPreview = await preview8(sharedId);
+  assert.equal(sharedPreview.response.status, 200);
+  assert.equal(
+    (await confirm8(sharedId, sharedPreview.data.previewHash)).response.status,
+    200,
+  );
+  const sharedAfter = (await request("summary")).data;
+  assert.equal(sharedAfter.netMinor, sharedBefore.netMinor + 500000);
+  assert.equal(
+    sharedAfter.openingDebtPendingMinor,
+    sharedBefore.openingDebtPendingMinor + 90000,
+  );
+  const repeatId = await transferUpload(fixture);
+  assert.equal((await preview8(repeatId)).data.error.code, "IMPORT_DUPLICATE");
+});
+
+test("phase eight rejects sample data without explicit confirmation, duplicate IDs, unsupported versions, broken links and bad image bytes", async () => {
+  assert.equal(
+    (
+      await request(
+        "recoveries/upload-url",
+        "POST",
+        { kind: "restore", sizeBytes: 40 * 1024 * 1024 + 1 },
+        { "Idempotency-Key": randomUUID() },
+      )
+    ).response.status,
+    422,
+  );
+  const sample = prototypeFixture("phase8-demo", undefined, true),
+    id = await transferUpload(sample),
+    p = await preview8(id);
+  assert.equal(p.response.status, 200);
+  assert.equal(
+    (await confirm8(id, p.data.previewHash)).data.error.code,
+    "DEMO_CONFIRMATION",
+  );
+  assert.equal(
+    (await confirm8(id, p.data.previewHash, { allowDemo: true })).response
+      .status,
+    200,
+  );
+  for (const transform of [
+    (v: any) => ({ ...v, version: 2 }),
+    (v: any) => ({ ...v, records: [...v.records, v.records[0]] }),
+    (v: any) => ({ ...v, gardens: [...v.gardens, v.gardens[0]] }),
+    (v: any) => ({
+      ...v,
+      records: v.records.map((r: any, i: number) =>
+        i === 0 ? { ...r, garden: "missing" } : r,
+      ),
+    }),
+    (v: any) => ({
+      ...v,
+      records: v.records.map((r: any, i: number) =>
+        i === 0 ? { ...r, photo: "data:image/png;base64,YmFk" } : r,
+      ),
+    }),
+  ]) {
+    const fixture = transform(prototypeFixture(randomUUID()));
+    const before = (await request("summary")).data.netMinor,
+      job = await transferUpload(fixture);
+    assert.equal((await preview8(job)).response.status, 422);
+    assert.equal((await request("summary")).data.netMinor, before);
+  }
+});
+
+test("phase eight stale preview, storage failure and audit failure leave no half import and identical retries succeed once", async () => {
+  const fixture = prototypeFixture(
+      "phase8-rollback",
+      "data:image/png;base64," + Buffer.from(png).toString("base64"),
+    ),
+    id = await transferUpload(fixture);
+  let p = await preview8(id);
+  assert.equal(p.response.status, 200);
+  await phase7Garden("phase8-changed-after-preview");
+  assert.equal(
+    (await confirm8(id, p.data.previewHash)).data.error.code,
+    "STALE_PREVIEW",
+  );
+  p = await preview8(id);
+  assert.equal(p.response.status, 200);
+  const before = (await request("summary")).data,
+    key = randomUUID();
+  await pool().query(
+    "create function private.test_import_failure() returns trigger language plpgsql set search_path='' as $$ begin if NEW.action='prototype.imported' then raise exception 'fixture failure'; end if; return NEW; end $$;create trigger test_import_failure before insert on public.audit_events for each row execute function private.test_import_failure()",
+  );
+  try {
+    assert.equal(
+      (await confirm8(id, p.data.previewHash, {}, key)).response.status,
+      500,
+    );
+  } finally {
+    await pool().query(
+      "drop trigger test_import_failure on public.audit_events;drop function private.test_import_failure()",
+    );
+  }
+  assert.deepEqual((await request("summary")).data, before);
+  assert.equal(
+    (
+      await pool().query(
+        "select count(*) n from private.legacy_imports where transfer_id=$1",
+        [id],
+      )
+    ).rows[0].n,
+    "0",
+  );
+  assert.equal(
+    (
+      await pool().query(
+        "select count(*) n from private.idempotency_requests where key=$1",
+        [key],
+      )
+    ).rows[0].n,
+    "0",
+  );
+  assert.equal(
+    (await confirm8(id, p.data.previewHash, {}, key)).response.status,
+    200,
+  );
+  assert.equal(
+    (await confirm8(id, p.data.previewHash, {}, key)).response.status,
+    200,
+  );
+  const immutable = (
+    await pool().query(
+      "select id from public.expenses where legacy_details->>'id'='phase8-rollbackrepair-b'",
+    )
+  ).rows[0].id;
+  await assert.rejects(
+    pool().query("update public.expenses set legacy_details='{}' where id=$1", [
+      immutable,
+    ]),
+  );
+});
+
+test("phase eight snapshot remains consistent when a payment commits during original-photo download", async () => {
+  const garden = await phase7Garden("phase8-snapshot"),
+    expense = await phase7Expense(garden, "1000");
+  const storage = supabase(true),
+    from = storage.storage.from.bind(storage.storage);
+  let first = true,
+    release!: () => void,
+    signal!: () => void;
+  const started = new Promise<void>((r) => (signal = r)),
+    gate = new Promise<void>((r) => (release = r));
+  storage.storage.from = (bucket: string) => {
+    const api = from(bucket),
+      download = api.download.bind(api);
+    api.download = (async (...args: Parameters<typeof download>) => {
+      if (first) {
+        first = false;
+        signal();
+        await gate;
+      }
+      return download(...args);
+    }) as unknown as typeof api.download;
+    return api;
+  };
+  const pending = createArchive(
+    pool(),
+    storage,
+    ownerId,
+    process.env.SUPABASE_URL!,
+  );
+  await started;
+  const payment = await request(
+    `expenses/${expense}/payments`,
+    "POST",
+    { paymentDate: "2026-09-12", amountBaht: "1" },
+    { "Idempotency-Key": randomUUID() },
+  );
+  assert.equal(payment.response.status, 200);
+  release();
+  const archive = await pending;
+  assert.ok(
+    !archive.data.expense_payments.some((p) => p.id === payment.data.id),
+  );
+  const live = (await request("summary")).data;
+  assert.equal(
+    archive.manifest.summary.pendingMinor,
+    live.laborPendingMinor +
+      live.expensePendingMinor +
+      live.openingDebtPendingMinor +
+      100,
+  );
+});
+
+test("phase eight missing originals fail backup and can retry; failed photo upload does not import half a prototype", async () => {
+  const row = (
+      await pool().query(
+        "select id,storage_key,mime_type from public.receipt_files limit 1",
+      )
+    ).rows[0],
+    storage = supabase(true),
+    got = await storage.storage.from("palm-receipts").download(row.storage_key),
+    bytes = Buffer.from(await got.data!.arrayBuffer()),
+    key = randomUUID();
+  const before = (await request("summary")).data;
+  await pool().query(
+    "update public.receipt_files set storage_key=$2 where id=$1",
+    [row.id, ownerId + "/missing-" + randomUUID()],
+  );
+  try {
+    const result = await request(
+      "backups",
+      "POST",
+      { passphrase: backupPassword },
+      { "Idempotency-Key": key },
+    );
+    assert.equal(result.response.status, 503);
+    assert.equal(
+      (
+        await pool().query(
+          "select status from private.transfer_jobs where owner_id=$1 and request_key=$2",
+          [ownerId, key],
+        )
+      ).rows[0].status,
+      "failed",
+    );
+  } finally {
+    await pool().query(
+      "update public.receipt_files set storage_key=$2 where id=$1",
+      [row.id, row.storage_key],
+    );
+  }
+  assert.equal(
+    (
+      await request(
+        "backups",
+        "POST",
+        { passphrase: backupPassword },
+        { "Idempotency-Key": key },
+      )
+    ).response.status,
+    200,
+  );
+  assert.deepEqual((await request("summary")).data, before);
+  const id = await transferUpload(
+      prototypeFixture(
+        "phase8-storagefail",
+        "data:image/png;base64," + Buffer.from(png).toString("base64"),
+      ),
+    ),
+    p = await preview8(id),
+    confirmKey = randomUUID();
+  assert.equal(p.response.status, 200);
+  const changed = await storage.storage.updateBucket("palm-receipts", {
+    public: false,
+    fileSizeLimit: 1,
+    allowedMimeTypes: [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/heic",
+      "image/heif",
+    ],
+  });
+  assert.ok(!changed.error);
+  try {
+    assert.equal(
+      (await confirm8(id, p.data.previewHash, {}, confirmKey)).response.status,
+      503,
+    );
+  } finally {
+    await storage.storage.updateBucket("palm-receipts", {
+      public: false,
+      allowedMimeTypes: [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/heic",
+        "image/heif",
+      ],
+      fileSizeLimit: 10485760,
+    });
+  }
+  assert.deepEqual((await request("summary")).data, before);
+  assert.equal(
+    (await confirm8(id, p.data.previewHash, {}, confirmKey)).response.status,
+    200,
+  );
+  const security = (
+    await pool().query(
+      "select c.relname,c.relrowsecurity,has_table_privilege('authenticated',c.oid,'select') client,has_table_privilege('anon',c.oid,'select') anon from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='private' and c.relname in ('transfer_jobs','transfer_objects','legacy_imports')",
+    )
+  ).rows;
+  assert.equal(security.length, 3);
+  assert.ok(security.every((t) => t.relrowsecurity && !t.client && !t.anon));
+});
+
+test("phase eight encrypted backup contains every table, payment history, Auth mapping and original files; corruption and missing photos are rejected", async () => {
+  const key = randomUUID(),
+    r = await request(
+      "backups",
+      "POST",
+      { passphrase: backupPassword },
+      { "Idempotency-Key": key },
+    );
+  assert.equal(r.response.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.status, "ready");
+  assert.ok(!JSON.stringify(r.data).includes("encrypted_password"));
+  const bytes = Buffer.from(await (await fetch(r.data.url)).arrayBuffer());
+  phase8Archive = bytes;
+  assert.ok(!bytes.includes(Buffer.from('"encrypted_password"')));
+  const archive = await decryptArchive(bytes, backupPassword);
+  assert.equal(
+    archive.manifest.summary.netMinor,
+    (await request("summary")).data.netMinor,
+  );
+  assert.equal(archive.auth.users[0].id, ownerId);
+  assert.ok(archive.auth.identities.length);
+  assert.equal(archive.files.length, archive.data.receipt_files.length);
+  assert.ok(archive.data.expense_payments.some((p) => p.voided_at));
+  assert.ok(archive.data.expense_allocations.length);
+  assert.ok(archive.imports.length);
+  const repeated = await request(
+    "backups",
+    "POST",
+    { passphrase: backupPassword },
+    { "Idempotency-Key": key },
+  );
+  assert.equal(repeated.response.status, 200);
+  assert.equal(repeated.data.id, r.data.id);
+  assert.equal(
+    (
+      await request(
+        "backups",
+        "POST",
+        { passphrase: backupPassword + "other" },
+        { "Idempotency-Key": key },
+      )
+    ).response.status,
+    409,
+  );
+  const uploadKey = randomUUID();
+  const restoreId = await transferUpload(bytes, "restore", uploadKey);
+  assert.equal(
+    (await preview8(restoreId, { passphrase: backupPassword + "wrong" }))
+      .response.status,
+    422,
+  );
+  const retryUpload = await request(
+    "recoveries/upload-url",
+    "POST",
+    { kind: "restore", sizeBytes: bytes.length },
+    { "Idempotency-Key": uploadKey },
+  );
+  assert.equal(retryUpload.response.status, 200);
+  assert.equal(retryUpload.data.id, restoreId);
+  assert.equal(retryUpload.data.status, "uploaded");
+  assert.equal(retryUpload.data.path, undefined);
+  const p = await preview8(restoreId, { passphrase: backupPassword });
+  assert.equal(p.response.status, 200);
+  assert.equal(
+    (
+      await confirm8(restoreId, p.data.previewHash, {
+        passphrase: backupPassword,
+      })
+    ).data.status,
+    "verified-for-new-environment",
+  );
+  const broken = Buffer.from(bytes);
+  broken[broken.length - 1] ^= 1;
+  const corrupted = await transferUpload(broken, "restore");
+  assert.equal(
+    (await preview8(corrupted, { passphrase: backupPassword })).response.status,
+    422,
+  );
+  const missing = { ...archive, files: archive.files.slice(1) };
+  const missingBytes = await encryptArchive(missing, backupPassword),
+    missingId = await transferUpload(missingBytes, "restore");
+  assert.equal(
+    (await preview8(missingId, { passphrase: backupPassword })).response.status,
+    422,
+  );
+  assert.equal((await request("backups/" + randomUUID())).response.status, 404);
+  const anonymous = await fetch(origin + "/api/v1/backups");
+  assert.equal(anonymous.status, 401);
+  assert.equal(
+    (
+      await request(
+        "backups",
+        "POST",
+        { passphrase: backupPassword },
+        { Origin: "https://evil.invalid", "Idempotency-Key": randomUUID() },
+      )
+    ).response.status,
+    403,
+  );
+});
+
+test("phase eight real restore into a second isolated Supabase stack preserves data, photos and username/password access; populated targets are refused", async () => {
+  const env = Object.fromEntries(
+    Object.entries(
+      parseEnv(readFileSync(".env.recovery.test.local", "utf8")),
+    ).filter(([, v]) => v !== undefined),
+  ) as Record<string, string>;
+  assert.equal(env.PALM_TEST_ENVIRONMENT, "true");
+  assert.equal(env.PALM_RECOVERY_TARGET, "true");
+  assert.equal(env.SUPABASE_URL, "http://127.0.0.1:55421");
+  const url = new URL(env.DATABASE_URL);
+  assert.equal(url.hostname, "127.0.0.1");
+  assert.equal(url.port, "55422");
+  assert.equal(env.APP_URL, "http://127.0.0.1:3200");
+  const db = databasePool(env),
+    storage = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  try {
+    await migrate(db);
+    const old = (
+      await db.query(
+        "select 'palm-receipts' bucket,storage_key from public.receipt_files union all select 'palm-transfers',storage_key from private.transfer_jobs",
+      )
+    ).rows;
+    for (const b of ["palm-receipts", "palm-transfers"]) {
+      const keys = old.filter((o) => o.bucket === b).map((o) => o.storage_key);
+      if (keys.length) await storage.storage.from(b).remove(keys);
+    }
+    await db.query("truncate auth.users,public.owner_accounts cascade");
+    const target = { db, storage, url: env.SUPABASE_URL, enabled: true };
+    await db.query(
+      "update storage.buckets set public=true where id='palm-receipts'",
+    );
+    try {
+      await assert.rejects(
+        restoreToEmptyEnvironment(phase8Archive, backupPassword, target, true),
+        /private buckets/,
+      );
+    } finally {
+      await db.query(
+        "update storage.buckets set public=false where id='palm-receipts'",
+      );
+    }
+    await assert.rejects(
+      restoreToEmptyEnvironment(
+        phase8Archive,
+        backupPassword,
+        { ...target, url: "https://feotpdylvprtihgklndj.supabase.co" },
+        true,
+      ),
+    );
+    const p = await restoreToEmptyEnvironment(
+      phase8Archive,
+      backupPassword,
+      target,
+      false,
+    );
+    assert.equal(p.status, "preview");
+    assert.equal(
+      (await db.query("select count(*) n from public.owner_accounts")).rows[0]
+        .n,
+      "0",
+    );
+    assert.equal(
+      (await db.query("select count(*) n from auth.users")).rows[0].n,
+      "0",
+    );
+    await db.query(
+      "create function private.test_restore_failure() returns trigger language plpgsql set search_path='' as $$ begin if NEW.action='recovery.restored' then raise exception 'fixture failure'; end if; return NEW; end $$;create trigger test_restore_failure before insert on public.audit_events for each row execute function private.test_restore_failure()",
+    );
+    try {
+      await assert.rejects(
+        restoreToEmptyEnvironment(phase8Archive, backupPassword, target, true),
+      );
+    } finally {
+      await db.query(
+        "drop trigger test_restore_failure on public.audit_events;drop function private.test_restore_failure()",
+      );
+    }
+    assert.equal(
+      (await db.query("select count(*) n from public.owner_accounts")).rows[0]
+        .n,
+      "0",
+    );
+    assert.equal(
+      (await db.query("select count(*) n from auth.users")).rows[0].n,
+      "0",
+    );
+    const restored = await restoreToEmptyEnvironment(
+      phase8Archive,
+      backupPassword,
+      target,
+      true,
+    );
+    assert.equal(restored.status, "restored");
+    assert.equal(
+      (
+        await db.query(
+          "select count(*) n from private.transfer_objects where owner_id=$1 and bucket='palm-transfers' and expires_at>now()",
+          [ownerId],
+        )
+      ).rows[0].n,
+      "1",
+    );
+    const archive = await decryptArchive(phase8Archive, backupPassword);
+    assert.deepEqual(restored.summary, archive.manifest.summary);
+    const signed = await createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    }).auth.signInWithPassword({
+      email: archive.auth.users[0].email,
+      password,
+    });
+    assert.ok(!signed.error, "restored original Auth password must work");
+    assert.equal(signed.data.user!.id, ownerId);
+    if (process.env.TEST_APP_MODE === "production") {
+      const targetApp = await startApp(env);
+      try {
+        const login = await fetch(env.APP_URL + "/api/v1/session", {
+          method: "POST",
+          headers: { Origin: env.APP_URL, "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        assert.equal(login.status, 200);
+        const targetCookie = login.headers.get("set-cookie")!.split(";")[0];
+        const summary = await fetch(env.APP_URL + "/api/v1/summary", {
+          headers: { Cookie: targetCookie },
+        });
+        assert.equal(summary.status, 200);
+        assert.equal(
+          (await summary.json()).netMinor,
+          archive.manifest.summary.netMinor,
+        );
+      } finally {
+        await stopApp(targetApp, false);
+      }
+    }
+
+    for (const f of archive.files) {
+      const downloaded = await storage.storage
+        .from("palm-receipts")
+        .download(
+          (
+            await db.query(
+              "select storage_key from public.receipt_files where id=$1",
+              [f.id],
+            )
+          ).rows[0].storage_key,
+        );
+      assert.ok(!downloaded.error);
+      assert.equal(
+        sha(Buffer.from(await downloaded.data!.arrayBuffer())),
+        f.sha256,
+      );
+    }
+    const before = (await db.query("select count(*) n from public.sales"))
+      .rows[0].n;
+    await assert.rejects(
+      restoreToEmptyEnvironment(phase8Archive, backupPassword, target, true),
+      /ปลายทางมีข้อมูล/,
+    );
+    assert.equal(
+      (await db.query("select count(*) n from public.sales")).rows[0].n,
+      before,
+    );
+    const triggers = (
+      await db.query(
+        "select count(*) n from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and not t.tgisinternal and t.tgenabled='D'",
+      )
+    ).rows[0].n;
+    assert.equal(triggers, "0");
+  } finally {
+    await db.end();
+  }
 });
 
 test("Supabase REST RLS denies non-owners and direct writes, but allows owner reads", async () => {

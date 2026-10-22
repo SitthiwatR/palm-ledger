@@ -33,13 +33,14 @@ type Sale = {
   saleDate: string;
   buyer: string;
   invoiceNumber: string;
-  weightKg: string;
-  priceBahtPerKg: string;
+  weightKg: string | null;
+  priceBahtPerKg: string | null;
   netMinor: number;
   deductions: { description: string; amountMinor: number }[];
   labor: {
     id: string;
     mode: "daily" | "weight";
+    unknownCalculation?: boolean;
     payee: string;
     quantity: string;
     rateBaht: string;
@@ -661,6 +662,13 @@ export function Ledger({
               ไม่พบสวนที่ต้องการ <Link href="/gardens">กลับหน้าสวน</Link>
             </p>
           ))}
+        {!loading && ready && view === "gardens" && (
+          <div className="actions">
+            <Link className="secondary" href="/tools">
+              สำรอง กู้คืน และย้ายข้อมูล
+            </Link>
+          </div>
+        )}
         {!loading && ready && view === "records" && (
           <div className="actions">
             <button className="secondary" onClick={() => setReports((v) => !v)}>
@@ -732,11 +740,18 @@ export function Ledger({
                           sale.saleDate + "T00:00:00",
                         ).toLocaleDateString("th-TH")}
                       </span>
-                      <small>
-                        บิล {sale.invoiceNumber} · {sale.weightKg} กก. ×{" "}
-                        {baht(Math.round(Number(sale.priceBahtPerKg) * 100))}{" "}
-                        บาท/กก.
-                      </small>
+                      {sale.weightKg === null ? (
+                        <small>
+                          บิล {sale.invoiceNumber} · ยอดจากต้นแบบ
+                          ไม่ทราบฐานน้ำหนัก/ราคาเดิม
+                        </small>
+                      ) : (
+                        <small>
+                          บิล {sale.invoiceNumber} · {sale.weightKg} กก. ×{" "}
+                          {baht(Math.round(Number(sale.priceBahtPerKg) * 100))}{" "}
+                          บาท/กก.
+                        </small>
+                      )}
                       {sale.deductions.length > 0 && (
                         <small>
                           หัก:{" "}
@@ -753,11 +768,18 @@ export function Ledger({
                           ค่าแรง
                           {item.mode === "daily"
                             ? "รายวัน"
-                            : "รายน้ำหนัก"} · {item.payee} · {item.quantity}{" "}
-                          {item.mode === "daily" ? "วัน" : "กก."} ×{" "}
-                          {item.rateBaht} บาท/
-                          {item.mode === "daily" ? "วัน" : "ตัน"} ={" "}
-                          {baht(item.amountMinor)} บาท · ค้างจ่าย{" "}
+                            : "รายน้ำหนัก"} · {item.payee} ·{" "}
+                          {item.unknownCalculation ? (
+                            "ยอดจากต้นแบบ ไม่ทราบฐานจำนวน/อัตรา"
+                          ) : (
+                            <>
+                              {item.quantity}{" "}
+                              {item.mode === "daily" ? "วัน" : "กก."} ×{" "}
+                              {item.rateBaht} บาท/
+                              {item.mode === "daily" ? "วัน" : "ตัน"}
+                            </>
+                          )}{" "}
+                          = {baht(item.amountMinor)} บาท · ค้างจ่าย{" "}
                           {baht(item.pendingMinor)} บาท
                         </small>
                       ))}

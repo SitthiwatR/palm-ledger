@@ -27,8 +27,8 @@ export type Expense = {
   payee: string;
   note: string;
   unit: string;
-  quantity: string;
-  rateBaht: string;
+  quantity: string | null;
+  rateBaht: string | null;
   amountMinor: number;
   paidMinor: number;
   pendingMinor: number;
@@ -455,24 +455,28 @@ export function ExpenseList({
                   "th-TH",
                 )}
               </span>
-              <small>
-                {e.quantity}{" "}
-                {e.unit === "day"
-                  ? "วัน"
-                  : e.unit === "kg"
-                    ? "กก."
-                    : e.unit === "sack"
-                      ? "กระสอบ"
-                      : "รายการ"}{" "}
-                × {e.rateBaht} บาท/
-                {e.unit === "kg"
-                  ? "ตัน"
-                  : e.unit === "day"
+              {e.quantity === null ? (
+                <small>ยอดจากต้นแบบ ไม่ทราบจำนวน/อัตราเดิมที่ตรงยอด</small>
+              ) : (
+                <small>
+                  {e.quantity}{" "}
+                  {e.unit === "day"
                     ? "วัน"
-                    : e.unit === "sack"
-                      ? "กระสอบ"
-                      : "รายการ"}
-              </small>
+                    : e.unit === "kg"
+                      ? "กก."
+                      : e.unit === "sack"
+                        ? "กระสอบ"
+                        : "รายการ"}{" "}
+                  × {e.rateBaht} บาท/
+                  {e.unit === "kg"
+                    ? "ตัน"
+                    : e.unit === "day"
+                      ? "วัน"
+                      : e.unit === "sack"
+                        ? "กระสอบ"
+                        : "รายการ"}
+                </small>
+              )}
               {e.note && <small>{e.note}</small>}
               <small>
                 จ่ายแล้ว {money(e.paidMinor)} บาท · ค้างจ่าย{" "}
