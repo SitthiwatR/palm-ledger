@@ -209,3 +209,5 @@ node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts
 Model 4/4, unit/API/CLI 64/64 กับ production build รวม migration upgrade preservation, full Chromium production build 12 ผ่าน + 1 ข้าม และ targeted Phase 7 หลังเติม audit detail ดู [handoff Phase 7](handoff-phase7.md) สำหรับหลักฐานและ SHA/deployment ล่าสุด ไม่ใช้ผล Chromium แทน Safari/iPhone จริง
 
 เพิ่ม migration `20261022000531_phase7_records_reports.sql` โดยไม่แก้ migrations เดิม ทุกรายการต้นทางมี version/soft void และค่าแรงผูกบิลมีสวน/วันที่ของตนเอง Reports ใช้ private invoker views ร่วมกับตัวกรองเดียวกันสำหรับ list/CSV ข้อมูลทดสอบอยู่ใน localhost แยก รวม database ชั่วคราวสำหรับทดสอบอัปเกรด ไม่ใช้ fixtures บน production
+
+Code Phase 7 `ed96e54` → Vercel `dpl_AfNWxQpfbQuUyHNAF2R4QQ4RYM25` READY; migration/build logs, SHA/repo/branch/alias, checksum/RLS/advisors, production HTTP/served JS และ preservation digest ผ่าน รายละเอียดใน handoff เอกสารผลตรวจอยู่ commit ถัดจาก code และต้องตรวจ deployment ของ HEAD ล่าสุดหลัง push เอกสารอีกครั้ง

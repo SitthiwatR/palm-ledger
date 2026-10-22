@@ -212,6 +212,8 @@
 
 **ผลตรวจ:** model 4/4; unit/API/CLI 64/64 กับ production build รวม upgrade preservation; full Chromium production build 12 ผ่าน + 1 ข้าม (รูป OCR ส่วนตัวไม่ได้ส่งเข้า) และตรวจ Phase 7 ซ้ำหลังเพิ่มรายละเอียด audit; typecheck/format/build/diff ผ่าน ไม่มี test writes บน production
 
+**Deployment:** code `ed96e54` → `dpl_AfNWxQpfbQuUyHNAF2R4QQ4RYM25` **READY** พร้อม SHA/alias/migration checksum/build logs/RLS และเทียบคอลัมน์เดิม production ก่อน–หลังไม่เปลี่ยน ดู [หลักฐาน](../docs/handoff-phase7.md) ต้องตรวจ HEAD เอกสารล่าสุดหลัง push อีกครั้ง
+
 **User stories:** 8, 30, 37–40, 43
 
 **ขึ้นกับ:** 4, 5, 6

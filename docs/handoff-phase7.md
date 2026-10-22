@@ -58,7 +58,7 @@
 - จำลอง audit failure หลังเปลี่ยน source/ชุดแบ่ง และหลังยกเลิก payments ก่อน void source ตรวจ rollback version/แถว/ประวัติ/audit/idempotency ทั้งชุด แล้ว retry เดิมสำเร็จครั้งเดียว
 - Payment แข่งกับลดต้นทุนหรือ void ใช้ lock เดียว ผลจบไม่มีจ่ายเกินหรือข้อมูลครึ่งชุด ตรวจ owner/Origin/RLS/private privileges และ CSV Thai/BOM/formula/quotes/newlines/filter/pagination
 - Upgrade test สร้าง database ชั่วคราวแยกบน localhost ใช้ migrations 1–6 จริงและข้อมูลรูปแบบก่อน Phase 7 แล้ว apply migration ใหม่ เปรียบเทียบทุกคอลัมน์เดิมทุกแถว รวม ciphertext ของ session, receipt metadata, audit, profiles, payments active/voided, allocations, owner และยอด attribution ได้เหมือนเดิม เติม snapshot labor ถูกต้อง (Auth/Storage ใน upgrade-only DB เป็น schema stub; main integration suite ใช้ services จริง)
-- Full Chromium production build **12 ผ่าน + 1 ข้าม** รวม regression Phase 1–6/รูป/HEIC/manual/Three.js/reduced motion/WebGL fallback; ตรวจ targeted Phase 7 กับ build ล่าสุดอีกครั้งหลังเพิ่มรายละเอียด audit (สวน/วันที่ก่อน–หลัง) ตรวจ 320 px ไม่มี overflow/page error และ CSV download จริง Safari/iPhone จริงและรูปส่วนตัว OCR ไม่อยู่ในหลักฐานรอบนี้
+- Full Chromium production build **12 ผ่าน + 1 ข้าม** รวม regression Phase 1–6/รูป/HEIC/manual/Three.js/reduced motion/WebGL fallback; targeted Phase 7 **2/2** ผ่านกับ build ล่าสุดอีกครั้งหลังเพิ่มรายละเอียด audit (สวน/วันที่ก่อน–หลัง) ตรวจ 320 px ไม่มี overflow/page error และ CSV download จริง Safari/iPhone จริงและรูปส่วนตัว OCR ไม่อยู่ในหลักฐานรอบนี้
 
 ## Deployment
 
@@ -67,6 +67,23 @@ Production <https://palm-ledger-nine.vercel.app> · Supabase `feotpdylvprtihgkln
 ฐานก่อนเริ่ม `b5dc428469e26a7b64928f89f7828b0f30fab9cc` (docs Phase 6), code `4efe66f`; deployment HEAD เดิม `dpl_CbaBZ4coDms25BXTMzQdqARzAabP` READY ผู้ใช้เห็นแล้วและให้เดิน Phase 7
 
 หลัง push ต้องตรวจ HEAD ล่าสุด READY พร้อม repository/branch/SHA/alias, migration checksum/owner/build logs, RLS/advisors และ production HTTP แบบอ่านอย่างเดียว ใช้ `npm run deploy:build` เดิม ไม่เปลี่ยน credentials/encryption key/Auth settings/TLS ไม่มี reset/truncate/seed บน production
+
+## ผล deployment ที่ตรวจแล้ว
+
+Code `ed96e54138b5329c634012baadd4e04dcdab8cd7` push `main` แล้ว Vercel production [`dpl_AfNWxQpfbQuUyHNAF2R4QQ4RYM25`](https://vercel.com/self-ade5/palm-ledger/AfNWxQpfbQuUyHNAF2R4QQ4RYM25) **READY** ตรวจ meta repo `SitthiwatR/palm-ledger`, ref `main`, SHA ตรง และ alias `palm-ledger-nine.vercel.app`
+
+Git integration เริ่ม deployment อัตโนมัติในรอบนี้ ใช้ project/team เดิม ตรวจ build command `npm run deploy:build` และ Git repository ID `1425885308` ก่อนปล่อย Logs มี `Verified official database CA artifact`, `Migrations applied.`, `Owner login: configured`, `Compiled successfully`, `Build Completed` (15 วินาที) และ `Deployment completed`
+
+ตรวจ production แบบอ่านอย่างเดียว:
+
+- Migration Phase 7 applied จริง checksum **`505331e27a034bc0bf7ee4d4bb1e7a43513f3fce11e1c7a1f0a6ec3a88e6b9ec`** ตรงไฟล์ใน Git; ทั้งแปด migrations checksum ตรงและเจ็ดรายการเดิมไม่เปลี่ยน
+- เทียบจำนวนแถวและ digest ของคอลัมน์เดิมก่อน/หลัง migration ทั้ง `sales`, `sale_labor`, `expenses`, `opening_debts`, `expense_payments`, `expense_allocations`, `receipt_files`, `labor_profiles`, `gardens` ได้เหมือนเดิมทั้งหมด Snapshot สวน/วันที่ค่าแรงเดิมตรงบิลทุกแถว (mismatch 0) ไม่พิมพ์ข้อมูลธุรกิจหรือ secrets ลง log
+- Public source/payment/allocation tables ยังเปิด RLS; authenticated SELECT เท่านั้น ไม่ให้ INSERT/UPDATE/DELETE และ anon อ่านไม่ได้ Private views ทั้งสี่เป็น security invoker/ไม่ให้ client หรือ anon อ่าน Functions ทั้งห้าเป็น security invoker/search_path ว่าง/ไม่ให้ client หรือ anon execute
+- Security advisors ไม่มีข้อแจ้งใหม่ของ Phase 7 มี warning เดิมเรื่อง [leaked password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) ไม่เปลี่ยน Auth settings
+- `/login`, `/records` → 200; unauthenticated `/api/v1/entries`, `/api/v1/entries/export` → 401 JavaScript ที่ production เสิร์ฟจริงมี `laborVersions`, `selected_pending_minor`, `entries/export`
+- Error/fatal runtime scan ของ deployment นี้ช่วง 10 นาทีที่ตรวจไม่พบ log ไม่ใช่การรับรอง monitoring ระยะยาว ไม่สร้างรายการ รูปหรือการจ่ายทดสอบบน production
+
+ผลตรวจนี้บันทึกใน commit เอกสารถัดจาก code ต้องตรวจ deployment ของ **HEAD ล่าสุดหลัง push เอกสาร** อีกครั้ง ไม่ใช้ Ready ของ code commit แทน HEAD ล่าสุด
 
 ## งานต่อ
 
