@@ -1,0 +1,5 @@
+name: Palm Ledger encrypted offsite backup
+description: Run the reviewed backup worker inside an Actions JavaScript runtime.
+runs:
+  using: node24
+  main: run.cjs

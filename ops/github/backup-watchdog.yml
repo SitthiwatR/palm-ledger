@@ -1,0 +1,35 @@
+name: Palm Ledger backup freshness watchdog
+on:
+  schedule:
+    - cron: "43 */2 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: palm-ledger-backup-watchdog
+  cancel-in-progress: false
+jobs:
+  monitor:
+    if: github.event.repository.private == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require a reviewed application commit
+        env:
+          SOURCE_SHA: ${{ vars.PALM_SOURCE_SHA }}
+        run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: SitthiwatR/palm-ledger
+          ref: ${{ vars.PALM_SOURCE_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - run: npm ci --ignore-scripts
+      - name: Check offsite proof without depending on the app or Supabase
+        run: npm run backup:watchdog
+        env:
+          BACKUP_DESTINATION_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}

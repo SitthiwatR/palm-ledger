@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { AutomaticBackupStatus } from "./automatic-backup-status";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { api, message, RequestError } from "./api";
@@ -256,6 +257,7 @@ export function DataTools() {
         </p>
       )}
       {status && <p role="status">{status}</p>}
+      <AutomaticBackupStatus />
       <section>
         <h2>สำรองข้อมูลพร้อมรูป</h2>
         <p>
@@ -309,7 +311,7 @@ export function DataTools() {
         )}
         <p>
           ดาวน์โหลดชุดสำรองได้ภายใน 7 วัน กรุณาดาวน์โหลดเก็บนอกระบบหลัก
-          ขนาดชุดสูงสุด 40 MiB/1,000 รูป การสำรองอัตโนมัติรายวันยังอยู่เฟส 9
+          ขนาดชุดสูงสุด 40 MiB/1,000 รูป ตรวจสถานะสำรองอัตโนมัติแยกด้านบน
         </p>
       </section>
       <section>

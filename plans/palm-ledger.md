@@ -2,7 +2,7 @@
 
 > Source PRD: [สเปก Palm Ledger](../app-spec.md) · [User flow](../user-flow.md)
 >
-> แผนพัฒนา 10 ขั้น อัปเดต 22 ตุลาคม 2569: **ขั้น 1–3 ผู้ใช้รับงานและปิดแล้ว; ขั้น 4–7 implement และได้รับอนุญาตเดินต่อถึงขั้น 8 แล้ว; ขั้น 8 implement และทดสอบแล้ว รอตรวจรับ** ดู [handoff ขั้น 8](../docs/handoff-phase8.md) และ [คู่มือสำรอง/กู้คืน](../docs/backup-recovery.md) งาน OCR และ iPhone/Safari จริงยังขั้น 10
+> แผนพัฒนา 10 ขั้น อัปเดต 22 ตุลาคม 2569: **ขั้น 1–3 ผู้ใช้รับงานและปิดแล้ว; ขั้น 4–7 implement และได้รับอนุญาตเดินต่อถึงขั้น 8 แล้ว; ขั้น 8 ผู้ใช้รับงานแล้ว; ขั้น 9 กำลังดำเนินการ — ยังต้องเชื่อมปลายทางส่วนตัวและเปิดงานจริง** ดู [handoff ขั้น 8](../docs/handoff-phase8.md) และ [คู่มือสำรอง/กู้คืน](../docs/backup-recovery.md) งาน OCR และ iPhone/Safari จริงยังขั้น 10
 >
 > ใช้แนวทาง [prd-to-plan ของ Matt Pocock](https://github.com/mattpocock/skills/blob/4dd409d177767ca942eddaff5db577b33e549101/prd-to-plan/SKILL.md) รวมช่วงที่เกี่ยวข้องจากร่างเดิม 21 ช่วง โดยเก็บขอบเขตเดิมครบ
 
@@ -233,7 +233,7 @@
 
 ## Phase 8: สำรอง กู้คืน และย้ายข้อมูลต้นแบบ
 
-**สถานะ: implement และทดสอบแล้ว รอผู้ใช้ตรวจรับ** ดู [handoff Phase 8](../docs/handoff-phase8.md) และ [คู่มือใช้งาน/ซ้อมกู้](../docs/backup-recovery.md) หน้า `/tools` สร้างชุดเข้ารหัสรวมรูป ตรวจ preview และนำเข้า JSON ต้นแบบ Full restore ใช้ CLI ลง Supabase ใหม่ที่ว่างก่อนตรวจบัญชี/ยอด/รูปและสลับใช้งาน ไม่แทนข้อมูล production ผ่านเว็บ
+**สถานะ: ผู้ใช้รับงานแล้วและอนุญาต Phase 9** ดู [handoff Phase 8](../docs/handoff-phase8.md) และ [คู่มือใช้งาน/ซ้อมกู้](../docs/backup-recovery.md) หน้า `/tools` สร้างชุดเข้ารหัสรวมรูป ตรวจ preview และนำเข้า JSON ต้นแบบ Full restore ใช้ CLI ลง Supabase ใหม่ที่ว่างก่อนตรวจบัญชี/ยอด/รูปและสลับใช้งาน ไม่แทนข้อมูล production ผ่านเว็บ
 
 **ผลตรวจ:** model 4/4, unit/API/CLI 72/72 กับ production build รวม Supabase สองชุดจริงและ upgrade preservation; full Chromium 13 ผ่าน + 1 ข้าม; typecheck/format/build/diff ผ่าน; SHA/deployment ดู handoff ไม่สร้าง test fixtures บน production
 
@@ -257,6 +257,10 @@
 ---
 
 ## Phase 9: สำรองอัตโนมัติรายวัน
+
+**สถานะ: เพิ่มโค้ดตัวรัน/หน้าแสดงสถานะและ workflow templates แล้ว ยังไม่เปิด production schedule** Source repository เป็น public ต้องมี private destination/โควตา/การตั้ง secrets และ notification ที่ตรวจแล้ว GitHub API จาก workspace ถูก network policy ปฏิเสธ ดู [handoff Phase 9](../docs/handoff-phase9.md) และ [คู่มือติดตั้ง](../docs/automatic-backups.md) ไม่ใช้ manual backup หรือผล local test แทนหลักฐาน provider จริง
+
+**ผลตรวจ local:** model 4/4, unit/API/CLI 76/76, full Chromium 13 ผ่าน + 1 ข้าม, typecheck/format/build/diff ผ่าน กู้ไฟล์จาก automatic runner เข้า Supabase แยกจริงได้ ยังไม่ใช้แทนการส่ง/ตรวจ schedule/notification ของ provider จริง
 
 **User stories:** 41, 50
 

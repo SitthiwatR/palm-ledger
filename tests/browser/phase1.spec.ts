@@ -1229,6 +1229,9 @@ test("Phase 8 previews a real prototype, retains failed confirmation, imports ph
     .getByRole("link", { name: "สำรอง กู้คืน และย้ายข้อมูล", exact: true })
     .click();
   await expect(page).toHaveURL(/\/tools$/);
+  await expect(page.locator(".automatic-backup")).toContainText(
+    "ยังไม่ได้เชื่อมตัวรันสำรองส่วนตัว",
+  );
   const photo =
     "data:image/png;base64," +
     Buffer.from(
@@ -1280,6 +1283,10 @@ test("Phase 8 previews a real prototype, retains failed confirmation, imports ph
     .click();
   await expect(page.getByRole("status")).toContainText(
     "สำรองและตรวจ checksum ครบแล้ว",
+  );
+  await page.getByRole("button", { name: "ตรวจสถานะอีกครั้ง" }).click();
+  await expect(page.locator(".automatic-backup")).toContainText(
+    "ยังไม่มีการสำรองอัตโนมัติที่ยืนยันสำเร็จ",
   );
   const downloaded = page.waitForEvent("download");
   await page

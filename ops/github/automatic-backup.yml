@@ -1,0 +1,42 @@
+name: Palm Ledger daily offsite backup
+on:
+  schedule:
+    - cron: "17 19 * * *" # 02:17 Asia/Bangkok, away from the top of the hour
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: palm-ledger-daily-backup
+  cancel-in-progress: false
+jobs:
+  backup:
+    if: github.event.repository.private == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Require a reviewed application commit
+        env:
+          SOURCE_SHA: ${{ vars.PALM_SOURCE_SHA }}
+        run: '[[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]'
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: SitthiwatR/palm-ledger
+          ref: ${{ vars.PALM_SOURCE_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - run: npm ci --ignore-scripts
+      - name: Verify database CA
+        run: npx tsx scripts/prepare-database-ca.ts
+      - name: Create, encrypt, upload and download-verify the whole snapshot
+        uses: ./ops/actions/automatic-backup
+        env:
+          PALM_AUTOMATED_BACKUP: "true"
+          BACKUP_DESTINATION_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+          DATABASE_URL: ${{ secrets.PALM_DATABASE_URL }}
+          SUPABASE_URL: https://feotpdylvprtihgklndj.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PALM_SUPABASE_SERVICE_ROLE_KEY }}
+          BACKUP_ENCRYPTION_PASSWORD: ${{ secrets.PALM_BACKUP_ENCRYPTION_PASSWORD }}

@@ -1,14 +1,14 @@
 # พัฒนาและทดสอบ Palm Ledger
 
-## สถานะล่าสุด — Phase 8
+## สถานะล่าสุด — Phase 9
 
-ผู้ใช้รับงาน Phase 7 และอนุญาต Phase 8 แล้ว เปิด **สวน → สำรอง กู้คืน และย้ายข้อมูล** (`/tools`) เพื่อสร้างชุดสำรองเข้ารหัสรวมรูป ตรวจไฟล์ก่อนกู้ หรือ preview/นำเข้า JSON จากต้นแบบเดิม ดู [handoff Phase 8](handoff-phase8.md) และ [คู่มือสำรอง/กู้คืน](backup-recovery.md) รอผู้ใช้ตรวจรับ Phase 8
+ผู้ใช้รับงาน Phase 8 และให้เดิน Phase 9 แล้ว เพิ่ม automatic backup runner, daily/watchdog workflow templates และสถานะบน `/tools` แยก manual backup ดู [handoff Phase 9](handoff-phase9.md) และ [คู่มือติดตั้ง/ข้อจำกัด](automatic-backups.md)
 
-Full restore ใช้ CLI ใน Supabase ใหม่ที่ว่าง ตรวจบัญชีเดิม ยอด ประวัติและรูปก่อนสลับใช้งาน ปฏิเสธ production/ต้นทาง/ฐานไม่ว่างและ TLS ไม่ตรวจ certificate ชุดสำรองมีข้อมูลแอป/Auth identity/รูปพร้อม checksum แต่ไม่ export live sessions หรือ platform secrets ต้องเข้าสู่ระบบใหม่ ไม่เปลี่ยน credentials/encryption key/session production เดิม
+**ยังไม่เปิด production schedule:** ต้องมี private repository/โควตา/Actions secrets และตรวจการรับแจ้งผู้ดูแลจริง Source repo เป็น public และ `api.github.com` ถูก network policy workspace ปฏิเสธ หน้าเว็บแสดงยังไม่เชื่อมตัวรันอย่างชัดเจน ไม่อ้างว่า backup ทำงานแล้วก่อนมี offsite proof
 
-JSON ต้นแบบ version 1 แยกข้อมูลตัวอย่าง/จริง ตรวจซ้ำและ before/after ยอด แปลง paid ที่ไม่มีประวัติครั้งเดียวพร้อมป้ายไม่ทราบวันที่จ่าย น้ำหนัก/อัตราที่ต้นแบบไม่เก็บเป็น unknown ไม่แต่งหน่วย รักษาการแก้/ยกเลิกต้นทางและรายงาน/CSV ของ [Phase 7](handoff-phase7.md) รวมค้างส่วนกลาง/หนี้เดิมโดยไม่หักสุทธิซ้ำ
+ใช้ snapshot/encryption/full restore จาก Phase 8 เดิม รวม app/Auth identity/รูปพร้อม checksum ตัวรันตรวจ private destination และ strict TLS Daily lease/attempt ไม่เขียนทับสำเนาดี และ DB complete + audit commit หลัง readback/decrypt/manifest verification เท่านั้น Watchdog ไม่ต้องเชื่อมแอปหรือ Supabase เพื่อตรวจ old/missing offsite point
 
-สำรองอัตโนมัติรายวันนอกระบบหลักยัง Phase 9; OCR และ Safari/iPhone จริงยัง Phase 10 ไม่มี test writes บน production
+ไม่แก้ OCR/Three.js/session/credentials/encryption key/รูป production เดิม ไม่ทำ fixtures บน production งาน Safari/iPhone จริงและ extraction ยัง Phase 10
 
 ## หลักฐาน Phase 5
 
@@ -217,3 +217,7 @@ Code Phase 7 `ed96e54` → Vercel `dpl_AfNWxQpfbQuUyHNAF2R4QQ4RYM25` READY; migr
 Model 4/4 และ unit/API/CLI 72/72 กับ production build ผ่าน รวม restore จริงเข้า Supabase ทดสอบอีกชุดและ login ผ่าน username/password เดิม, rollback หลัง upload, retry/idempotency, owner/RLS และ upgrade preservation คู่มือมีคำสั่ง init/inspect/preview/restore และข้อจำกัด snapshot/ไฟล์ Full Chromium 13 ผ่าน + 1 ข้าม; typecheck/format/build/diff ผ่าน ดู SHA/deployment ล่าสุดใน [handoff Phase 8](handoff-phase8.md)
 
 Code Phase 8 `8beab17` → Vercel `dpl_G1Mh8adJVCA7R63tx4xFNWWL8kW2` READY ตรวจ repo/ref/SHA/alias, official CA/migration/build logs, 11 migration checksums, private bucket/RLS/advisors และ production HTTP/served JS แล้ว จำนวนแถว/digest คอลัมน์เดิมทั้งเก้าตารางตรงก่อน migration ไม่มี production test fixtures ผลตรวจอยู่ commit เอกสารถัดจาก code ต้องตรวจ HEAD ล่าสุดหลัง push เอกสารอีกครั้ง
+
+## ผลตรวจ Phase 9 — 22 ตุลาคม 2569
+
+Model 4/4, unit/API/CLI 76/76 กับ production build และ full Chromium 13 ผ่าน + 1 ข้าม ผ่าน TypeScript/format/build/diff และ lockfile dependency audit (0 advisory) รวม automatic archive → offsite filesystem adapter → restore ใน Supabase อีกชุดจริง ยอด รูปและบัญชีเดิมตรงกัน ไม่ใช่หลักฐานว่า private GitHub schedule หรือการแจ้งเตือน production เปิดแล้ว ดู [handoff](handoff-phase9.md)

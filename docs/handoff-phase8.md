@@ -6,7 +6,7 @@
 
 ผู้ใช้รับงาน Phase 7 และสั่งเดิน Phase 8 แล้ว ฐานเริ่มต้น `173dd8f1d602b6ca508f1bbf69e56b7da842aee0` บน `main` (code Phase 7 `ed96e54`), deployment `dpl_9TbPQrKCXAaWP4vMEp89pMy5sfWz` READY ไม่ทำ Phase 1–7 ซ้ำ
 
-Phase 8 เพิ่มสำรองรวมรูป กู้คืนในระบบใหม่ และนำเข้า JSON ต้นแบบ พร้อม preview/ยืนยันและตรวจยอด **รอผู้ใช้ตรวจรับ Phase 8 ไม่ปิดแทนผู้ใช้หรือเดิน Phase 9 อัตโนมัติ** ไม่แก้ OCR/Three.js/credentials/encryption key/TLS ไม่สร้าง test fixtures บน production
+Phase 8 เพิ่มสำรองรวมรูป กู้คืนในระบบใหม่ และนำเข้า JSON ต้นแบบ พร้อม preview/ยืนยันและตรวจยอด **ผู้ใช้รับงานแล้วและอนุญาต Phase 9** ไม่แก้ OCR/Three.js/credentials/encryption key/TLS ไม่สร้าง test fixtures บน production
 
 ## พฤติกรรมที่ส่งมอบ
 
@@ -78,4 +78,4 @@ Build logs ยืนยัน `npm run deploy:build`, `Verified official databas
 
 ## งานต่อ
 
-รอผู้ใช้ตรวจรับ Phase 8 Phase 9 คือเลือกตัวรัน/ปลายทางนอกระบบ/ระยะเก็บ สำรองรายวัน และแจ้งล้มเหลว/จุดสำรองเก่ากว่า 24 ชั่วโมง ยังไม่ได้ implement งาน extraction และ Safari/iPhone จริงยัง Phase 10 ผล Chromium ไม่แทนการรับงานบนอุปกรณ์จริง
+ผู้ใช้รับงาน Phase 8 แล้ว ดู [handoff Phase 9](handoff-phase9.md) สำหรับงานต่อ Phase 9 คือเลือกตัวรัน/ปลายทางนอกระบบ/ระยะเก็บ สำรองรายวัน และแจ้งล้มเหลว/จุดสำรองเก่ากว่า 24 ชั่วโมง ยังไม่ได้ implement งาน extraction และ Safari/iPhone จริงยัง Phase 10 ผล Chromium ไม่แทนการรับงานบนอุปกรณ์จริง

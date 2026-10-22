@@ -15,6 +15,15 @@ import { hash, supabase } from "../src/server/auth";
 import { manageOwner } from "../scripts/owner";
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
+import { readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { TestOffsite } from "./automatic-store";
+import {
+  runAutomaticBackup,
+  automaticStatus,
+  offsiteHealth,
+  MAX_OFFSITE_BYTES,
+} from "../src/server/recovery/automatic";
 import { parseEnv } from "node:util";
 import { databasePool } from "../src/server/db";
 import { migrate } from "../scripts/migrate";
@@ -3207,6 +3216,233 @@ test("phase eight real restore into a second isolated Supabase stack preserves d
       )
     ).rows[0].n;
     assert.equal(triggers, "0");
+  } finally {
+    await db.end();
+  }
+});
+
+let automaticArchive: Buffer;
+const autoPassword = "automatic-backup-test-secret-2026-private";
+test("phase nine offsite encryption, failed transfer, audit rollback, concurrent retry and stale status preserve business data and earlier backup points", async () => {
+  const store = await new TestOffsite().init();
+  const options = {
+    db: pool(),
+    storage: supabase(true),
+    sourceUrl: process.env.SUPABASE_URL!,
+    password: autoPassword,
+    offsite: store,
+    runId: "9001",
+  };
+  const before = (await request("summary")).data;
+  try {
+    assert.equal(
+      (await request("backups/automatic-status")).data.state,
+      "not-configured",
+    );
+    assert.equal(
+      (await fetch(origin + "/api/v1/backups/automatic-status")).status,
+      401,
+    );
+    store.publicRepository = true;
+    await assert.rejects(runAutomaticBackup(options));
+    assert.equal(
+      (await automaticStatus(pool(), ownerId)).state,
+      "not-configured",
+    );
+    store.publicRepository = false;
+    store.corruptDownload = true;
+    await assert.rejects(runAutomaticBackup(options));
+    assert.equal(offsiteHealth(store.objects).status, "missing");
+    assert.equal((await automaticStatus(pool(), ownerId)).lastSuccess, null);
+    store.corruptDownload = false;
+    await pool().query(
+      "create function private.test_auto_failure() returns trigger language plpgsql set search_path='' as $$ begin if NEW.action='backup.automatic_completed' then raise exception 'fixture failure'; end if; return NEW; end $$;create trigger test_auto_failure before insert on public.audit_events for each row execute function private.test_auto_failure()",
+    );
+    try {
+      await assert.rejects(runAutomaticBackup(options));
+    } finally {
+      await pool().query(
+        "drop trigger test_auto_failure on public.audit_events;drop function private.test_auto_failure()",
+      );
+    }
+    assert.equal((await automaticStatus(pool(), ownerId)).state, "failed");
+    assert.equal((await automaticStatus(pool(), ownerId)).lastSuccess, null);
+    assert.equal(
+      (
+        await pool().query(
+          "select count(*) n from public.audit_events where action='backup.automatic_completed'",
+        )
+      ).rows[0].n,
+      "0",
+    );
+    const raced = await Promise.all([
+      runAutomaticBackup(options),
+      runAutomaticBackup(options),
+    ]);
+    assert.equal(raced.filter((r) => r.status === "complete").length, 1);
+    const success = raced.find((r) => r.status === "complete")!;
+    const original = await readFile(
+      join(store.directory, success.artifactId!, "backup.palmbackup"),
+    );
+    const count = store.objects.length;
+    assert.equal(
+      (await runAutomaticBackup(options)).status,
+      "already-complete",
+    );
+    assert.equal(store.objects.length, count);
+    const status = (await request("backups/automatic-status")).data;
+    assert.equal(status.state, "healthy");
+    assert.ok(!JSON.stringify(status).includes("lease_token"));
+    assert.equal(offsiteHealth(store.objects).status, "fresh");
+    assert.equal(
+      (await automaticStatus(pool(), ownerId, Date.now() + 25 * 3600000)).state,
+      "stale",
+    );
+    await pool().query(
+      "update private.automatic_backup_runs set slot=slot-1 where id=$1",
+      [success.id],
+    );
+    store.failUpload = true;
+    await assert.rejects(runAutomaticBackup(options));
+    const failed = await automaticStatus(pool(), ownerId);
+    assert.equal(failed.state, "failed");
+    assert.equal(failed.lastSuccess.id, success.id);
+    assert.equal(
+      sha(
+        await readFile(
+          join(store.directory, success.artifactId!, "backup.palmbackup"),
+        ),
+      ),
+      sha(original),
+    );
+    store.failUpload = false;
+    const final = await runAutomaticBackup(options);
+    automaticArchive = await readFile(
+      join(store.directory, final.artifactId!, "backup.palmbackup"),
+    );
+    const archive = await decryptArchive(automaticArchive, autoPassword);
+    assert.equal(archive.manifest.summary.netMinor, before.netMinor);
+    assert.equal(
+      archive.manifest.summary.pendingMinor,
+      before.laborPendingMinor +
+        before.openingDebtPendingMinor +
+        before.expensePendingMinor,
+    );
+    assert.equal(archive.files.length, archive.data.receipt_files.length);
+    assert.ok(archive.auth.identities.length);
+    assert.equal((await request("summary")).data.netMinor, before.netMinor);
+    assert.deepEqual((await request("summary")).data, before);
+    const secure = (
+      await pool().query(
+        "select relrowsecurity rls,has_table_privilege('authenticated','private.automatic_backup_runs','SELECT,INSERT,UPDATE,DELETE') client from pg_class where oid='private.automatic_backup_runs'::regclass",
+      )
+    ).rows[0];
+    assert.equal(secure.rls, true);
+    assert.equal(secure.client, false);
+    // A saturated destination must keep all earlier good files and fail before export.
+    await pool().query(
+      "update private.automatic_backup_runs set slot=slot-2 where id=$1",
+      [final.id],
+    );
+    store.objects.push({
+      id: "9999",
+      name: "other-usage",
+      size: MAX_OFFSITE_BYTES,
+      expired: false,
+      runId: "9001",
+    });
+    const filesBefore = store.objects.length;
+    await assert.rejects(runAutomaticBackup(options));
+    assert.equal(store.objects.length, filesBefore);
+    assert.ok((await automaticStatus(pool(), ownerId)).lastSuccess);
+  } finally {
+    await rm(store.directory, { recursive: true, force: true });
+  }
+});
+
+test("phase nine restores an automatically encrypted offsite file into separate Supabase with original photos and username access", async () => {
+  const env = parseEnv(readFileSync(".env.recovery.test.local", "utf8"));
+  assert.equal(env.PALM_TEST_ENVIRONMENT, "true");
+  assert.equal(env.PALM_RECOVERY_TARGET, "true");
+  assert.equal(env.SUPABASE_URL, "http://127.0.0.1:55421");
+  const url = new URL(env.DATABASE_URL!);
+  assert.equal(url.hostname, "127.0.0.1");
+  assert.equal(url.port, "55422");
+  const db = databasePool(env),
+    storage = createClient(env.SUPABASE_URL!, env.SUPABASE_SERVICE_ROLE_KEY!, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  try {
+    await migrate(db);
+    const old = (
+      await db.query(
+        "select 'palm-receipts' bucket,storage_key from public.receipt_files union all select 'palm-transfers',storage_key from private.transfer_jobs",
+      )
+    ).rows;
+    for (const bucket of ["palm-receipts", "palm-transfers"]) {
+      const keys = old
+        .filter((o) => o.bucket === bucket)
+        .map((o) => o.storage_key);
+      if (keys.length) await storage.storage.from(bucket).remove(keys);
+    }
+    await db.query("truncate auth.users,public.owner_accounts cascade");
+    const result = await restoreToEmptyEnvironment(
+      automaticArchive,
+      autoPassword,
+      { db, storage, url: env.SUPABASE_URL!, enabled: true },
+      true,
+    );
+    const archive = await decryptArchive(automaticArchive, autoPassword);
+    assert.equal(result.status, "restored");
+    assert.deepEqual(result.summary, archive.manifest.summary);
+    assert.equal(
+      (await db.query("select username from public.owner_accounts")).rows[0]
+        .username,
+      username,
+    );
+    const auth = await createClient(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    }).auth.signInWithPassword({
+      email: archive.auth.users[0].email,
+      password,
+    });
+    assert.ok(!auth.error);
+    assert.equal(auth.data.user!.id, ownerId);
+    for (const file of archive.files) {
+      const key = (
+        await db.query(
+          "select storage_key from public.receipt_files where id=$1",
+          [file.id],
+        )
+      ).rows[0].storage_key;
+      const got = await storage.storage.from("palm-receipts").download(key);
+      assert.ok(!got.error);
+      assert.equal(
+        sha(new Uint8Array(await got.data!.arrayBuffer())),
+        file.sha256,
+      );
+    }
+    if (process.env.TEST_APP_MODE === "production") {
+      const app = await startApp(env as Record<string, string>);
+      try {
+        const login = await fetch(env.APP_URL + "/api/v1/session", {
+          method: "POST",
+          headers: { Origin: env.APP_URL!, "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        assert.equal(login.status, 200);
+        const r = await fetch(env.APP_URL + "/api/v1/summary", {
+          headers: { Cookie: login.headers.get("set-cookie")!.split(";")[0] },
+        });
+        assert.equal(r.status, 200);
+        assert.equal(
+          (await r.json()).netMinor,
+          archive.manifest.summary.netMinor,
+        );
+      } finally {
+        await stopApp(app, false);
+      }
+    }
   } finally {
     await db.end();
   }

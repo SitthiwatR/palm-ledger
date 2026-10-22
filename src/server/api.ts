@@ -20,6 +20,7 @@ import {
 import { pool, transaction } from "./db";
 import { entryRoutes } from "./entries";
 import { transferRoutes } from "./recovery/api";
+import { automaticStatus } from "./recovery/automatic";
 
 const uuid = z.uuid();
 const name = z
@@ -1327,6 +1328,8 @@ export async function handle(
       return response;
     }
     const owner = await authenticate(token);
+    if (route === "backups/automatic-status" && method === "GET")
+      return json(await automaticStatus(pool(), owner.id));
     const transferResponse = await transferRoutes(req, owner, path, {
       body,
       checkImage: validImageSignature,
