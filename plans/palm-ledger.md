@@ -262,6 +262,8 @@
 
 **ผลตรวจ local:** model 4/4, unit/API/CLI 76/76, full Chromium 13 ผ่าน + 1 ข้าม, typecheck/format/build/diff ผ่าน กู้ไฟล์จาก automatic runner เข้า Supabase แยกจริงได้ ยังไม่ใช้แทนการส่ง/ตรวจ schedule/notification ของ provider จริง
 
+**Deployment:** code `021a5e3` → `dpl_DQFHWMY8GG6VRwUzs3bKZg7wDHcy` **READY** พร้อม SHA/migration/build logs/RLS/preservation/HTTP ดู handoff และตรวจ HEAD เอกสารล่าสุดหลัง push อีกครั้ง **การ deploy นี้ไม่ได้เปิด production backup schedule**
+
 **User stories:** 41, 50
 
 **ขึ้นกับ:** 8 และตัวรัน/ปลายทางสำรองที่พร้อมใช้งานและตรวจเงื่อนไขแล้ว

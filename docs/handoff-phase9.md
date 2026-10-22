@@ -42,6 +42,23 @@ Daily workflow เรียก local JavaScript action (`ops/actions/automatic-b
 
 ไม่ใช้ผล local แทนการตรวจ provider/schedule/notification จริง Deployment/SHA/migration/build logs บันทึกหลัง push ด้านล่าง
 
+## Deployment ที่ตรวจแล้ว
+
+Code `021a5e37ca175c7b5c1345a655ec837de04bc0bd` push `main` แล้ว Vercel production [`dpl_DQFHWMY8GG6VRwUzs3bKZg7wDHcy`](https://vercel.com/self-ade5/palm-ledger/DQFHWMY8GG6VRwUzs3bKZg7wDHcy) **READY** Repo `SitthiwatR/palm-ledger`, ref `main`, SHA ตรง alias `palm-ledger-nine.vercel.app`, project `prj_ZCEDsQNX4Kt2Xgj6IPdqI9ip9LT6`, team `team_PnTYWZ1rB5hOoQSGOZwv0aFW` Supabase ยังคง `feotpdylvprtihgklndj`
+
+Build logs ยืนยัน `npm run deploy:build`, official database CA verified, `Migrations applied.`, `Owner login: configured`, `Compiled successfully`, `Build Completed` (21 วินาที) และ `Deployment completed` ไม่เปลี่ยน build command/TLS/credentials
+
+ตรวจ production แบบอ่านอย่างเดียว:
+
+- ทั้ง **12 migrations** checksum ตรงไฟล์ local/Git แถวเดิม 11 รายการไม่เปลี่ยน Phase 9 SHA-256 **`7596040c84c105d521377ab6ccc607ccc4f11b1a44812a2d6f5eebce51619867`**
+- เทียบจำนวนแถว/digest ของทุกคอลัมน์เดิมทั้ง `sales`, `sale_labor`, `expenses`, `opening_debts`, `expense_payments`, `expense_allocations`, `receipt_files`, `labor_profiles`, `gardens` ก่อน–หลัง migration **ตรงทั้งเก้าตาราง** ไม่มี fixtures/backup จริงที่ agent สร้างบน production
+- ตาราง automatic backup ใหม่เปิด RLS มี owner SELECT policy และไม่มี anon/authenticated table privileges มี run count **0** ณ ตอนตรวจ จึงยังแสดง not-configured ไม่อ้างว่าเปิด schedule แล้ว
+- Security advisors ไม่มี warning ใหม่ มี warning เดิมเรื่อง [leaked password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) ไม่แก้ Auth settings
+- `/login`, `/tools`, `/records` → 200; unauthenticated `/api/v1/backups/automatic-status` → 401 JS ที่เสิร์ฟจริงมี `backups/automatic-status` ไม่มี `ACTIONS_RUNTIME_TOKEN` หรือ `PALM_DATABASE_URL` ใน client bundles
+- Error/fatal scan ของ deployment ช่วง 10 นาทีที่ตรวจไม่พบ logs ไม่ใช้ผลนี้เป็นการรับรอง monitoring ระยะยาว
+
+ผลนี้อยู่ commit เอกสารถัดจาก code ต้องตรวจ **HEAD ล่าสุดหลัง push เอกสาร** READY พร้อม SHA/migration/build logs อีกครั้ง UI/API production พร้อมให้ตรวจ แต่ Phase 9 ยังมี external setup/acceptance ที่ไม่เสร็จตามรายการด้านล่าง
+
 ## งานที่ต้องทำก่อนรับ Phase 9
 
 1. ผู้ใช้เลือก private backup repository และช่องทางแจ้งผู้ดูแล (แนะนำ GitHub Actions notifications) พร้อมสิทธิ์ตั้ง secrets/dispatch ผ่าน GitHub API หรือให้ผู้ดูแลทำตาม [คู่มือ](automatic-backups.md)

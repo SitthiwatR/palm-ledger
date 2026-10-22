@@ -221,3 +221,5 @@ Code Phase 8 `8beab17` → Vercel `dpl_G1Mh8adJVCA7R63tx4xFNWWL8kW2` READY ต�
 ## ผลตรวจ Phase 9 — 22 ตุลาคม 2569
 
 Model 4/4, unit/API/CLI 76/76 กับ production build และ full Chromium 13 ผ่าน + 1 ข้าม ผ่าน TypeScript/format/build/diff และ lockfile dependency audit (0 advisory) รวม automatic archive → offsite filesystem adapter → restore ใน Supabase อีกชุดจริง ยอด รูปและบัญชีเดิมตรงกัน ไม่ใช่หลักฐานว่า private GitHub schedule หรือการแจ้งเตือน production เปิดแล้ว ดู [handoff](handoff-phase9.md)
+
+Code Phase 9 `021a5e3` → Vercel `dpl_DQFHWMY8GG6VRwUzs3bKZg7wDHcy` READY ตรวจ SHA/repo/ref/alias, official CA/migration/build logs, 12 checksums/RLS/advisors และ HTTP/served JS แล้ว จำนวนแถว/digest ทุกคอลัมน์เดิมเก้าตารางตรงก่อน migration ไม่มี production test fixtures หรือ automatic backup runs ยังต้องเชื่อม private destination/เปิด schedule จริงตาม handoff ตรวจ HEAD ล่าสุดหลัง push เอกสารอีกครั้ง
