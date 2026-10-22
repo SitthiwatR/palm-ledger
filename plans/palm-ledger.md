@@ -237,6 +237,8 @@
 
 **ผลตรวจ:** model 4/4, unit/API/CLI 72/72 กับ production build รวม Supabase สองชุดจริงและ upgrade preservation; full Chromium 13 ผ่าน + 1 ข้าม; typecheck/format/build/diff ผ่าน; SHA/deployment ดู handoff ไม่สร้าง test fixtures บน production
 
+**Deployment:** code `8beab17` → `dpl_G1Mh8adJVCA7R63tx4xFNWWL8kW2` **READY**; SHA/repo/ref/alias/migration/build logs/RLS และ preservation digest ผ่าน ดู [หลักฐาน](../docs/handoff-phase8.md) ต้องตรวจ HEAD เอกสารล่าสุดหลัง push อีกครั้ง
+
 **User stories:** 41, 42
 
 **ขึ้นกับ:** 7

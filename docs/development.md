@@ -215,3 +215,5 @@ Code Phase 7 `ed96e54` → Vercel `dpl_AfNWxQpfbQuUyHNAF2R4QQ4RYM25` READY; migr
 ## ผลตรวจ Phase 8 — 22 ตุลาคม 2569
 
 Model 4/4 และ unit/API/CLI 72/72 กับ production build ผ่าน รวม restore จริงเข้า Supabase ทดสอบอีกชุดและ login ผ่าน username/password เดิม, rollback หลัง upload, retry/idempotency, owner/RLS และ upgrade preservation คู่มือมีคำสั่ง init/inspect/preview/restore และข้อจำกัด snapshot/ไฟล์ Full Chromium 13 ผ่าน + 1 ข้าม; typecheck/format/build/diff ผ่าน ดู SHA/deployment ล่าสุดใน [handoff Phase 8](handoff-phase8.md)
+
+Code Phase 8 `8beab17` → Vercel `dpl_G1Mh8adJVCA7R63tx4xFNWWL8kW2` READY ตรวจ repo/ref/SHA/alias, official CA/migration/build logs, 11 migration checksums, private bucket/RLS/advisors และ production HTTP/served JS แล้ว จำนวนแถว/digest คอลัมน์เดิมทั้งเก้าตารางตรงก่อน migration ไม่มี production test fixtures ผลตรวจอยู่ commit เอกสารถัดจาก code ต้องตรวจ HEAD ล่าสุดหลัง push เอกสารอีกครั้ง

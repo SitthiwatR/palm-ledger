@@ -58,6 +58,24 @@ Production <https://palm-ledger-nine.vercel.app> · Supabase `feotpdylvprtihgkln
 
 ใช้ `npm run deploy:build` เดิม (official CA → transactional/checksum migrations → Next build) มี snapshot จำนวนแถว/digest ของคอลัมน์เดิม production ก่อนปล่อย เพื่อเทียบหลัง migrations ตรวจ HEAD ล่าสุด READY พร้อม repo/ref/SHA/alias และ migration/build logs ผลตรวจหลัง push บันทึกในเอกสารถัดจาก code commit
 
+## ผล deployment ที่ตรวจแล้ว
+
+Code `8beab17aa5ecb4c48226e79de3bbd184ddc6e486` push `main` แล้ว Vercel production [`dpl_G1Mh8adJVCA7R63tx4xFNWWL8kW2`](https://vercel.com/self-ade5/palm-ledger/G1Mh8adJVCA7R63tx4xFNWWL8kW2) **READY** ตรวจ repo `SitthiwatR/palm-ledger`, ref `main`, SHA ตรง และ alias `palm-ledger-nine.vercel.app` Git integration เริ่ม deployment อัตโนมัติ ใช้ project/team เดิม
+
+Build logs ยืนยัน `npm run deploy:build`, `Verified official database CA artifact`, `Migrations applied.`, `Owner login: configured`, `Compiled successfully`, `Build Completed` (18 วินาที) และ `Deployment completed`
+
+ตรวจ production แบบอ่านอย่างเดียวหลัง migration:
+
+- ทั้ง **11 migrations** checksum ตรงไฟล์ทั้งชุด และแปด migrations เดิมไม่เปลี่ยน SHA-256 ของสามรายการใหม่: `20261022004032_phase8_backup_recovery.sql` = `14d92a822ce0954e14f3928120cbd776bbc726949b01934999cdc6fe0b98a163`; `20261022005155_phase8_transfer_objects.sql` = `d63a250a88adb368a418fdf097ed8cc12f6d76b1ebaefc187d13562c387c8329`; `20261022012344_phase8_transfer_free_tier_limit.sql` = `4c4efb5ca84676013fb5d142dcceaccc293d3ad0854f29b960efe3143370674e`
+- จำนวนแถว/digest ของคอลัมน์เดิมทุกแถวใน `sales`, `sale_labor`, `expenses`, `opening_debts`, `expense_payments`, `expense_allocations`, `receipt_files`, `labor_profiles`, `gardens` **เหมือนก่อน migration ทั้งเก้าตาราง** ไม่พิมพ์ข้อมูลธุรกิจ/credentials รูปหรือบันทึกทดสอบไม่ได้ถูกสร้างบน production ตาราง transfer ยังว่าง ณ ตอนตรวจ
+- Public source/payment/allocation/receipt tables ยังเปิด RLS, authenticated SELECT เท่านั้น ไม่มี client write/anon read ทั้งสาม private tables มี RLS/owner SELECT policy และไม่มี client grants สอง functions ที่เพิ่ม/เปลี่ยนเป็น security invoker/search_path ว่าง ไม่มี client/anon execute
+- `palm-transfers` private จริง MIME เฉพาะ octet-stream/JSON, file limit **41,943,040 bytes (40 MiB)** ไม่เปลี่ยน bucket รูปเดิม/global Storage settings
+- Security advisors ไม่มีข้อแจ้งใหม่ มี warning เดิมเรื่อง [leaked password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) ไม่เปลี่ยน Auth settings
+- `/login`, `/tools`, `/records` → 200; unauthenticated `/api/v1/backups` และ `/api/v1/backups/:id` → 401 JS ที่ production เสิร์ฟจริงมี `recoveries/upload-url`, `previewHash`, `palmbackup`, `40 MiB`
+- Error/fatal runtime scan ของ deployment นี้ในช่วง 10 นาทีที่ตรวจไม่พบ log เป็นหลักฐานช่วงที่ตรวจ ไม่ใช่ monitoring ระยะยาว ไม่มี authenticated test writes บน production
+
+เอกสารผลตรวจอยู่ commit ถัดจาก code ต้องตรวจ deployment ของ **HEAD ล่าสุดหลัง push เอกสาร** เป็น READY พร้อม SHA/migration/build logs อีกครั้ง ไม่ใช้ Ready ของ code แทน HEAD ล่าสุด
+
 ## งานต่อ
 
 รอผู้ใช้ตรวจรับ Phase 8 Phase 9 คือเลือกตัวรัน/ปลายทางนอกระบบ/ระยะเก็บ สำรองรายวัน และแจ้งล้มเหลว/จุดสำรองเก่ากว่า 24 ชั่วโมง ยังไม่ได้ implement งาน extraction และ Safari/iPhone จริงยัง Phase 10 ผล Chromium ไม่แทนการรับงานบนอุปกรณ์จริง
