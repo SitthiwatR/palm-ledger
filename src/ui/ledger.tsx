@@ -11,6 +11,7 @@ import icons from "../../assets/icons.json";
 import { PalmLandscape } from "./palm-landscape";
 import { ExpenseForm, ExpenseList, type Expense } from "./expense-form";
 import { Payables, type Payable } from "./payables";
+import { Entries } from "./entries";
 import { SaleForm } from "./sale-form";
 import { api, message, RequestError } from "./api";
 
@@ -435,6 +436,7 @@ export function Ledger({
   });
   const [payables, setPayables] = useState<Payable[]>([]);
   const [expenseModal, setExpenseModal] = useState(false);
+  const [reports, setReports] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const expenseTrigger = useRef<HTMLButtonElement>(null);
   const [gardens, setGardens] = useState<Garden[]>([]),
@@ -660,6 +662,16 @@ export function Ledger({
             </p>
           ))}
         {!loading && ready && view === "records" && (
+          <div className="actions">
+            <button className="secondary" onClick={() => setReports((v) => !v)}>
+              {reports ? "กลับหน้าบันทึก" : "ค้นหา / แก้รายการ / รายงาน"}
+            </button>
+          </div>
+        )}
+        {!loading && ready && view === "records" && reports && (
+          <Entries gardens={gardens} onChanged={load} />
+        )}
+        {!loading && ready && view === "records" && !reports && (
           <>
             <div className="actions">
               <button

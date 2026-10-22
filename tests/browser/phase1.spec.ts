@@ -918,6 +918,299 @@ test("Phase 6 shared cost, allocation retries and stale editors preserve source 
   expect(errors).toEqual([]);
 });
 
+test("Phase 7 search, source edits, stale review, payment-impact void and Thai CSV survive reload at mobile widths", async ({
+  page,
+}) => {
+  test.setTimeout(120000);
+  page.setDefaultTimeout(15000);
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/login");
+  await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+  await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  const headers = {
+    Origin: "http://127.0.0.1:3100",
+    "Idempotency-Key": crypto.randomUUID(),
+  };
+  const garden = await (
+    await page.request.post("/api/v1/gardens", {
+      headers,
+      data: { name: "สวนแก้รายงาน UI", openingMinor: 500000 },
+    })
+  ).json();
+  const created = await page.request.post("/api/v1/expenses", {
+    headers: { ...headers, "Idempotency-Key": crypto.randomUUID() },
+    data: {
+      gardenId: garden.id,
+      expenseDate: "2026-09-01",
+      kind: "other",
+      payee: "ร้านแก้รายการ UI",
+      note: "ภาษาไทย",
+      unit: "item",
+      quantity: "1",
+      rateBaht: "10000",
+      paymentStatus: "partial",
+      paidBaht: "5000",
+      paymentDate: "2026-09-02",
+      rememberRate: false,
+    },
+  });
+  expect(created.status()).toBe(201);
+  const id = (await created.json()).id;
+  await page.goto("/records");
+  await page
+    .getByRole("button", { name: "ค้นหา / แก้รายการ / รายงาน" })
+    .click();
+  const panel = page.getByRole("region", { name: "ค้นหารายการและรายงาน" });
+  await panel.getByLabel("สวนที่รับต้นทุน").selectOption(garden.id);
+  await panel.getByLabel("ตั้งแต่วันที่").fill("2026-09-01");
+  await panel.getByLabel("ถึงวันที่").fill("2026-09-30");
+  await panel.getByRole("button", { name: "ใช้ตัวกรอง" }).click();
+  await expect(panel.locator(".entry-row")).toHaveCount(1);
+  await expect(
+    panel.getByRole("region", { name: "รายงานตามตัวกรอง" }),
+  ).toContainText("ค้างปัจจุบันของรายการที่ตรงตัวกรอง 5,000.00");
+  await expect(panel).toContainText("ไม่บวกยอดยกมา");
+  await panel
+    .getByRole("button", { name: "รายละเอียด ร้านแก้รายการ UI", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("จ่ายแล้ว 5,000.00");
+  await dialog
+    .getByRole("button", { name: "แก้ไขรายการ", exact: true })
+    .click();
+  await dialog.getByLabel("อัตราต่อหน่วย (บาท)").fill("4000");
+  await dialog.getByLabel("เหตุผลที่แก้ไข").fill("ลองตรวจยอด");
+  await dialog
+    .getByRole("button", { name: "บันทึกการแก้ไข", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toContainText("ต่ำกว่ายอดจ่าย");
+  await expect(dialog.getByLabel("อัตราต่อหน่วย (บาท)")).toHaveValue("4000");
+  await dialog.getByLabel("อัตราต่อหน่วย (บาท)").fill("11000");
+  await page.route(`**/api/v1/entries/expenses/${id}`, (route) =>
+    route.request().method() === "PATCH" ? route.abort() : route.continue(),
+  );
+  await dialog
+    .getByRole("button", { name: "บันทึกการแก้ไข", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toContainText("ข้อมูลที่กรอกยังอยู่");
+  await expect(dialog.getByRole("alert")).toBeFocused();
+  await expect(dialog.getByLabel("อัตราต่อหน่วย (บาท)")).toHaveValue("11000");
+  await page.unroute(`**/api/v1/entries/expenses/${id}`);
+  const external = await page.request.patch(`/api/v1/entries/expenses/${id}`, {
+    headers: { ...headers, "Idempotency-Key": crypto.randomUUID() },
+    data: {
+      gardenId: garden.id,
+      date: "2026-09-01",
+      kind: "other",
+      payee: "ร้านแก้รายการ UI",
+      note: "อีกแท็บ",
+      unit: "item",
+      quantity: "1",
+      rateBaht: "12000",
+      expectedVersion: 1,
+      reason: "แก้อีกแท็บ",
+    },
+  });
+  expect(external.status()).toBe(200);
+  await dialog
+    .getByRole("button", { name: "บันทึกการแก้ไข", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toContainText("เปลี่ยนจากอีกหน้าจอ");
+  await expect(dialog.getByLabel("อัตราต่อหน่วย (บาท)")).toHaveValue("11000");
+  await dialog
+    .getByRole("button", { name: "โหลดข้อมูลล่าสุด (แทนค่าที่กำลังแก้)" })
+    .click();
+  await expect(dialog.getByLabel("อัตราต่อหน่วย (บาท)")).toHaveValue(
+    "12000.00",
+  );
+  await dialog.getByLabel("อัตราต่อหน่วย (บาท)").fill("11000");
+  await dialog.getByLabel("เหตุผลที่แก้ไข").fill("ตรวจใหม่แล้ว");
+  await dialog
+    .getByRole("button", { name: "บันทึกการแก้ไข", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  await expect(panel.locator(".entry-row")).toContainText("11,000.00");
+  const download = page.waitForEvent("download");
+  await panel.getByRole("button", { name: "ส่งออก CSV ตามตัวกรอง" }).click();
+  const saved = await download;
+  const csv = readFileSync((await saved.path())!, "utf8");
+  expect(csv.charCodeAt(0)).toBe(0xfeff);
+  expect(csv).toContain("ร้านแก้รายการ UI");
+  expect(csv).toContain('"11000.00"');
+  await panel
+    .getByRole("button", { name: "รายละเอียด ร้านแก้รายการ UI", exact: true })
+    .click();
+  await dialog
+    .getByRole("button", { name: "ยกเลิกรายการ", exact: true })
+    .click();
+  await expect(dialog).toContainText("รวม 5,000.00 บาทจะถูกยกเลิก");
+  await dialog.getByLabel("เหตุผลที่ยกเลิก").fill("ลงต้นทางผิด");
+  await dialog
+    .getByLabel("ตรวจประวัติและยืนยันยกเลิกการจ่ายที่มีผลพร้อมต้นทาง")
+    .check();
+  await dialog
+    .getByRole("button", { name: "ยืนยันยกเลิกรายการ", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  await expect(panel.locator(".entry-row")).toHaveCount(0);
+  await panel.getByLabel("สถานะรายการ").selectOption("voided");
+  await panel.getByRole("button", { name: "ใช้ตัวกรอง" }).click();
+  await expect(panel.locator(".entry-row")).toHaveCount(1);
+  await panel
+    .getByRole("button", { name: "รายละเอียด ร้านแก้รายการ UI", exact: true })
+    .click();
+  await expect(dialog).toContainText("ลงต้นทางผิด");
+  await expect(dialog).toContainText("ค้างปัจจุบัน 0.00");
+  await expect(
+    dialog.getByRole("button", { name: "แก้ไขรายการ", exact: true }),
+  ).toHaveCount(0);
+  await dialog.getByText(/ประวัติการเปลี่ยนแปลง \(/).click();
+  await expect(dialog).toContainText("ตรวจใหม่แล้ว");
+  await dialog.getByRole("button", { name: "ปิดรายละเอียด" }).click();
+  await page.setViewportSize({ width: 320, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
+  await page.screenshot({
+    path: "/tmp/palm-phase7-mobile.png",
+    fullPage: true,
+  });
+  await page.reload();
+  await page
+    .getByRole("button", { name: "ค้นหา / แก้รายการ / รายงาน" })
+    .click();
+  await panel.getByLabel("สวนที่รับต้นทุน").selectOption(garden.id);
+  await panel.getByLabel("สถานะรายการ").selectOption("voided");
+  await panel.getByRole("button", { name: "ใช้ตัวกรอง" }).click();
+  await expect(panel.locator(".entry-row")).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test("Phase 7 linked sale review opens labor separately and preserves its garden/date through parent edits and void", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  page.setDefaultTimeout(15000);
+  await page.goto("/login");
+  await page.getByLabel("ชื่อผู้ใช้", { exact: true }).fill(username);
+  await page.getByLabel("รหัสผ่าน", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "เข้าสู่ระบบ", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  const ids: string[] = [];
+  for (const name of ["สวนบิล UI A", "สวนบิล UI B"]) {
+    const g = await page.request.post("/api/v1/gardens", {
+      headers: {
+        Origin: "http://127.0.0.1:3100",
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      data: { name, openingMinor: 0 },
+    });
+    expect(g.status()).toBe(201);
+    ids.push((await g.json()).id);
+  }
+  const { pool } = await import("../../src/server/db");
+  const owner = (
+    await pool().query("select owner_id from public.gardens where id=$1", [
+      ids[0],
+    ])
+  ).rows[0].owner_id;
+  const sale = (
+    await pool().query(
+      "insert into public.sales(owner_id,garden_id,sale_date,buyer,invoice_number,net_weight_grams,price_minor_per_kg,gross_minor,deductions_minor,net_minor) values($1,$2,'2026-09-01','บิลตรวจค่าแรง UI','UI-phase7-linked',1000000,1000,1000000,0,1000000) returning id",
+      [owner, ids[0]],
+    )
+  ).rows[0].id;
+  const labor = (
+    await pool().query(
+      "insert into public.sale_labor(owner_id,sale_id,mode,payee,basis_units,rate_minor,amount_minor) values($1,$2,'weight','ทีมแยกตรวจ UI',1000000,80000,80000) returning id",
+      [owner, sale],
+    )
+  ).rows[0].id;
+  await page.goto("/records");
+  await page
+    .getByRole("button", { name: "ค้นหา / แก้รายการ / รายงาน" })
+    .click();
+  const panel = page.getByRole("region", { name: "ค้นหารายการและรายงาน" });
+  await panel
+    .getByLabel("ค้นหาผู้ซื้อ ผู้รับเงิน เลขบิล หรือหมายเหตุ")
+    .fill("UI-phase7-linked");
+  await panel.getByLabel("ประเภทรายการ").selectOption("sales");
+  await panel.getByRole("button", { name: "ใช้ตัวกรอง" }).click();
+  await expect(panel.locator(".entry-row")).toHaveCount(1);
+  await panel
+    .getByRole("button", { name: "รายละเอียด บิลตรวจค่าแรง UI", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("ค่าแรงที่เกี่ยวข้อง");
+  await dialog
+    .getByRole("button", { name: "แก้ไขรายการ", exact: true })
+    .click();
+  await dialog.getByLabel("สวน").selectOption(ids[1]);
+  await dialog.getByLabel("วันที่รายการ", { exact: true }).fill("2026-09-05");
+  await dialog.getByLabel("เหตุผลที่แก้ไข").fill("บิลอยู่สวน B แต่ทีมสวน A");
+  await dialog
+    .getByLabel("ตรวจค่าแรงทั้งหมดแล้ว เข้าใจว่าค่าแรงไม่เปลี่ยนตามบิล")
+    .check();
+  await dialog
+    .getByRole("button", { name: "บันทึกการแก้ไข", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  const d = await (
+    await page.request.get(`/api/v1/entries/sale-labor/${labor}`)
+  ).json();
+  expect(d.record.garden_id).toBe(ids[0]);
+  expect(d.record.date).toBe("2026-09-01");
+  expect(Number(d.record.amount_minor)).toBe(80000);
+  await panel
+    .getByRole("button", { name: "รายละเอียด บิลตรวจค่าแรง UI", exact: true })
+    .click();
+  await dialog.getByText(/ประวัติการเปลี่ยนแปลง \(/).click();
+  await expect(dialog).toContainText("สวน: สวนบิล UI A → สวนบิล UI B");
+  await expect(dialog).toContainText("วันที่: 2026-09-01 → 2026-09-05");
+  await dialog
+    .getByRole("button", { name: "เปิดค่าแรง ทีมแยกตรวจ UI", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("heading", { name: "รายละเอียดค่าแรงผูกบิล" }),
+  ).toBeVisible();
+  await dialog
+    .getByRole("button", { name: "แก้ไขรายการ", exact: true })
+    .click();
+  await dialog
+    .getByLabel("น้ำหนักคิดค่าแรง (กก.)", { exact: true })
+    .fill("900");
+  await dialog.getByLabel("เหตุผลที่แก้ไข").fill("แก้ทีมแยก");
+  await dialog
+    .getByRole("button", { name: "บันทึกการแก้ไข", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  await panel
+    .getByRole("button", { name: "รายละเอียด บิลตรวจค่าแรง UI", exact: true })
+    .click();
+  await dialog
+    .getByRole("button", { name: "ยกเลิกรายการ", exact: true })
+    .click();
+  await dialog.getByLabel("เหตุผลที่ยกเลิก").fill("ยกเลิกเฉพาะบิล");
+  await dialog
+    .getByLabel("ตรวจค่าแรงทั้งหมดแล้ว เข้าใจว่าค่าแรงไม่เปลี่ยนตามบิล")
+    .check();
+  await dialog
+    .getByRole("button", { name: "ยืนยันยกเลิกรายการ", exact: true })
+    .click();
+  await expect(dialog).not.toBeVisible();
+  const after = await (
+    await page.request.get(`/api/v1/entries/sale-labor/${labor}`)
+  ).json();
+  expect(after.record.voided_at).toBeNull();
+  expect(after.pendingMinor).toBe(72000);
+  expect(after.record.garden_id).toBe(ids[0]);
+});
+
 test("failed saves keep form input, and administrator reset forces a new login", async ({
   page,
 }) => {

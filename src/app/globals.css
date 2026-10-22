@@ -2124,3 +2124,90 @@ svg {
   min-height: 20px;
   accent-color: var(--green, #16513e);
 }
+
+.entry-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 1rem;
+  margin-block: 1.5rem;
+  align-items: end;
+}
+.entry-filters label {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.entry-filters input,
+.entry-filters select {
+  width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  border: 1px solid #d7dfd0;
+  border-radius: 10px;
+  padding: 10px 13px;
+  background: #fff;
+  font: inherit;
+}
+.entry-report,
+.entry-impact {
+  background: #f0f5ec;
+  border: 1px solid #d7dfd0;
+  border-radius: 14px;
+  padding: 1rem;
+  margin-block: 1rem;
+  overflow-wrap: anywhere;
+}
+.entry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 1.25rem;
+  border-bottom: 1px solid #d7dfd0;
+  overflow-wrap: anywhere;
+}
+.entry-row p {
+  margin: 0.4rem 0;
+}
+.entry-dialog {
+  overflow-wrap: anywhere;
+}
+.entry-dialog h3 {
+  font-size: 1rem;
+  margin-block: 1rem 0.4rem;
+}
+.entry-dialog p {
+  margin-block: 0.5rem;
+}
+.entry-part {
+  display: grid;
+  gap: 0.6rem;
+  border-left: 2px solid #d7dfd0;
+  padding-left: 0.75rem;
+}
+.entry-dialog summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding-block: 0.75rem;
+}
+.entry-dialog .check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.entry-dialog .check input {
+  width: 22px;
+  min-height: 22px;
+  flex: 0 0 22px;
+  accent-color: #16513e;
+  margin-top: 3px;
+}
+@media (max-width: 600px) {
+  .entry-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .entry-row button {
+    width: 100%;
+  }
+}

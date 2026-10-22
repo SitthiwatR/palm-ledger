@@ -1,16 +1,18 @@
 # พัฒนาและทดสอบ Palm Ledger
 
-## สถานะล่าสุด — Phase 6
+## สถานะล่าสุด — Phase 7
 
-ผู้ใช้รับงาน Phase 5 และอนุญาต Phase 6 แล้ว Phase 6 เพิ่มรายจ่ายส่วนกลางและการแบ่งเข้าสวนโดยใช้ต้นทาง/รูป/payment เดิม ดู [handoff Phase 6](handoff-phase6.md) สำหรับ migration, API, สูตรเศษสตางค์ และผลทดสอบ/deployment ล่าสุด
+ผู้ใช้รับงาน Phase 6 และให้ทำ Phase 7 แล้ว หน้า `/records` มี **ค้นหา / แก้รายการ / รายงาน** สำหรับตัวกรอง รายงานรายสวน/รวม CSV ภาษาไทย และแก้/ยกเลิกต้นทางพร้อมประวัติ ดู [handoff Phase 7](handoff-phase7.md) สำหรับ API, migration และผลทดสอบ/deployment ล่าสุด รอผู้ใช้ตรวจรับ Phase 7
 
-ส่วนกลางที่ยังไม่แบ่งหักสุทธิรวมครั้งเดียว แยกจากรายสวน การแบ่ง/แก้ชุดแบ่งและการจ่าย/void ไม่เปลี่ยนสุทธิรวม มี optimistic version/idempotency/transaction และ owner/RLS เช่นเดิม ยังรอผู้ใช้ตรวจรับ Phase 6
+ค่าแรงผูกบิลมีสวน/วันที่ snapshot แยก ไม่ย้ายหรือยกเลิกตามบิลเงียบ ๆ source version กันแท็บเก่า ยอดใหม่ห้ามต่ำกว่าที่จ่ายจริง ยกเลิกต้นทางและ payments ที่มีผลเป็น transaction เดียวพร้อม audit ชุดแบ่ง รูปและประวัติเดิมยังอยู่
+
+รายงาน/CSV ใช้ตัวกรองเดียวกัน แยกยอดยกมาและความเคลื่อนไหวชัดเจน ระบุค้างเป็นสถานะปัจจุบัน การจ่ายและหนี้ก่อนระบบไม่หักสุทธิซ้ำ รักษาส่วนกลาง/สูตรแบ่งสตางค์ของ [Phase 6](handoff-phase6.md)
 
 ## หลักฐาน Phase 5
 
 Phase 5 เพิ่มหนี้ก่อนเริ่มระบบ การจ่ายภายหลังหลายครั้งและยกเลิกการจ่ายผิด โดยใช้ `expense_payments` เดิมร่วมกับ `sale_labor`, `expenses` รวมค่าแรงทีมแยกบิล และ `opening_debts` ใหม่ การจ่าย/void เปลี่ยนเฉพาะค้าง ไม่หักสุทธิซ้ำ ดู [handoff Phase 5](handoff-phase5.md) สำหรับ API, migration, หลักฐานทดสอบและ deployment ล่าสุด ผู้ใช้อนุญาตเดิน Phase 5 โดยไม่ทำ Phase 4 ซ้ำ ผู้ใช้รับงาน Phase 5 และให้เดิน Phase 6 แล้ว
 
-ไม่มีการแก้ OCR หรือทดสอบเขียนบน production งาน extraction/iPhone/Safari จริงยัง Phase 10 และการแก้/ยกเลิกต้นทางยัง Phase 7
+ไม่มีการแก้ OCR หรือทดสอบเขียนบน production งาน extraction/iPhone/Safari จริงยัง Phase 10 ส่วนการแก้/ยกเลิกต้นทางเพิ่มใน Phase 7 แล้ว
 
 ## สิ่งที่ทำแล้วในเฟสก่อนหน้า
 
@@ -186,7 +188,7 @@ node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts
 - Model 4/4; unit/API/CLI 48/48 ทั้ง dev และ production build; typecheck/format/build/diff ผ่าน ตรวจ concurrency/idempotency/void/rollback/owner/RLS/audit ด้วย PostgreSQL/Auth/REST/Storage จริงใน isolated test stack เดิม
 - Chromium production build 9 ผ่าน + 1 ข้าม (private OCR photo ไม่ได้ส่งเข้ารอบนี้): เพิ่มหนี้เดิม/failed payment/focus/retry/void/new payment/reload/ประวัติ/สุทธิ, 320 px และ regression UI/Three.js เดิมผ่าน
 - หนี้เดิม 1,000 แยกจากยกมา 5,000; หนี้ 10,000 จ่าย 6,000+4,000 ค้าง 0; จ่ายผิด 5,000 แล้วยกเลิกและลงจริง 500 ค้าง 9,500 โดยไม่หักสุทธิซ้ำ
-- งาน extraction และ Safari/iPhone จริงยัง Phase 10 การแก้/ยกเลิกต้นทางยัง Phase 7 ผู้ใช้ยืนยันรับงาน Phase 5 และอนุญาต Phase 6 แล้ว
+- งาน extraction และ Safari/iPhone จริงยัง Phase 10 ส่วนการแก้/ยกเลิกต้นทางเพิ่มใน Phase 7 แล้ว ผู้ใช้รับงาน Phase 6 และอนุญาต Phase 7 แล้ว
 
 หลักฐาน deployment Phase 5 และผลตรวจแบบอ่านอย่างเดียวบน production อยู่ใน [handoff Phase 5](handoff-phase5.md) ต้องตรวจ deployment ของ HEAD ล่าสุดหลัง push เสมอ
 
@@ -199,4 +201,11 @@ node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts
 - ตรวจส่วนกลาง 1,000 จ่าย 333.33 แบ่ง 400/600 → จ่ายตามสัดส่วน 133.33/200.00 ค้าง 266.67/400.00; เศษ 3 สตางค์/3 สวน, จ่ายเพิ่ม/void, แก้/เก็บกลับส่วนกลาง, concurrent payment/สองแท็บ, rollback/retry และ receipt/payment IDs เดิม ผ่านทั้ง API และ browser flow ที่เกี่ยวข้อง
 - Browser ตรวจ validation/network error และ focus/คงค่า, stale version/load latest, reload, ภาพรวม/กรองค้างรายสวน, 320 px ไม่มี overflow/page error และ regression UI/Three.js เดิม ใช้ isolated test stack เท่านั้น ไม่สร้างข้อมูลทดสอบบน production
 
-รายละเอียด API/สูตร/ข้อจำกัดและ deployment ล่าสุดดู [handoff Phase 6](handoff-phase6.md) ยังรอผู้ใช้ตรวจรับ Phase 6 และไม่อ้างว่าผ่าน Safari/iPhone จริงหรือคุณภาพ extraction ซึ่งยัง Phase 10
+รายละเอียด API/สูตร/ข้อจำกัดและ deployment ล่าสุดดู [handoff Phase 6](handoff-phase6.md) ผู้ใช้รับงาน Phase 6 แล้วและอนุญาต Phase 7 ไม่อ้างว่าผ่าน Safari/iPhone จริงหรือคุณภาพ extraction ซึ่งยัง Phase 10
+
+
+## ผลตรวจ Phase 7 — 22 ตุลาคม 2569
+
+Model 4/4, unit/API/CLI 64/64 กับ production build รวม migration upgrade preservation, full Chromium production build 12 ผ่าน + 1 ข้าม และ targeted Phase 7 หลังเติม audit detail ดู [handoff Phase 7](handoff-phase7.md) สำหรับหลักฐานและ SHA/deployment ล่าสุด ไม่ใช้ผล Chromium แทน Safari/iPhone จริง
+
+เพิ่ม migration `20261022000531_phase7_records_reports.sql` โดยไม่แก้ migrations เดิม ทุกรายการต้นทางมี version/soft void และค่าแรงผูกบิลมีสวน/วันที่ของตนเอง Reports ใช้ private invoker views ร่วมกับตัวกรองเดียวกันสำหรับ list/CSV ข้อมูลทดสอบอยู่ใน localhost แยก รวม database ชั่วคราวสำหรับทดสอบอัปเกรด ไม่ใช้ fixtures บน production

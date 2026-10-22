@@ -17,6 +17,7 @@ import {
   type Owner,
 } from "./auth";
 import { pool, transaction } from "./db";
+import { entryRoutes } from "./entries";
 
 const uuid = z.uuid();
 const name = z
@@ -121,10 +122,10 @@ function garden(row: Record<string, unknown>) {
   };
 }
 function balanceJoins(ownerParameter: 1 | 2) {
-  return `left join (select garden_id,sum(net_minor) net_minor from public.sales where owner_id=$${ownerParameter} group by garden_id) s on s.garden_id=g.id
-    left join (select s.garden_id,sum(l.amount_minor) labor_minor,sum(l.amount_minor-coalesce(p.paid_minor,0)) labor_pending_minor from public.sale_labor l left join (select sale_labor_id,owner_id,sum(amount_minor) paid_minor from public.expense_payments where voided_at is null group by sale_labor_id,owner_id) p on p.sale_labor_id=l.id and p.owner_id=l.owner_id join public.sales s on s.id=l.sale_id and s.owner_id=l.owner_id where l.owner_id=$${ownerParameter} group by s.garden_id) l on l.garden_id=g.id
+  return `left join (select garden_id,sum(net_minor) net_minor from public.sales where owner_id=$${ownerParameter} and voided_at is null group by garden_id) s on s.garden_id=g.id
+    left join (select l.garden_id,sum(l.amount_minor) labor_minor,sum(l.amount_minor-coalesce(p.paid_minor,0)) labor_pending_minor from public.sale_labor l left join (select sale_labor_id,owner_id,sum(amount_minor) paid_minor from public.expense_payments where voided_at is null group by sale_labor_id,owner_id) p on p.sale_labor_id=l.id and p.owner_id=l.owner_id join public.sales s on s.id=l.sale_id and s.owner_id=l.owner_id where l.owner_id=$${ownerParameter} and l.voided_at is null group by l.garden_id) l on l.garden_id=g.id
     left join (select garden_id,sum(amount_minor) expense_minor,sum(pending_minor) expense_pending_minor from private.expense_attributions where owner_id=$${ownerParameter} group by garden_id) e on e.garden_id=g.id
-    left join (select d.garden_id,sum(d.amount_minor-coalesce(p.paid_minor,0)) debt_pending_minor from public.opening_debts d left join (select opening_debt_id,owner_id,sum(amount_minor) paid_minor from public.expense_payments where voided_at is null group by opening_debt_id,owner_id) p on p.opening_debt_id=d.id and p.owner_id=d.owner_id where d.owner_id=$${ownerParameter} group by d.garden_id) d on d.garden_id=g.id`;
+    left join (select d.garden_id,sum(d.amount_minor-coalesce(p.paid_minor,0)) debt_pending_minor from public.opening_debts d left join (select opening_debt_id,owner_id,sum(amount_minor) paid_minor from public.expense_payments where voided_at is null group by opening_debt_id,owner_id) p on p.opening_debt_id=d.id and p.owner_id=d.owner_id where d.owner_id=$${ownerParameter} and d.voided_at is null group by d.garden_id) d on d.garden_id=g.id`;
 }
 function decimalMinor(value: string) {
   const [whole, fraction = ""] = value.split(".");
@@ -718,7 +719,7 @@ async function listExpenses(owner: Owner) {
     coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'paymentDate',to_char(p.payment_date,'YYYY-MM-DD'),'amountMinor',p.amount_minor,'voidedAt',p.voided_at,'voidReason',p.void_reason) order by p.created_at,p.id) from public.expense_payments p where p.expense_id=e.id and p.owner_id=e.owner_id),'[]'::jsonb) payments,
     (select r.id from public.receipt_files r where r.expense_id=e.id and r.owner_id=e.owner_id limit 1) receipt_id
     from public.expenses e left join public.gardens g on g.id=e.garden_id and g.owner_id=e.owner_id
-    where e.owner_id=$1 order by e.expense_date desc,e.created_at desc limit 200`,
+    where e.owner_id=$1 and e.voided_at is null order by e.expense_date desc,e.created_at desc limit 200`,
       [owner.id],
     )
   ).rows;
@@ -849,16 +850,19 @@ async function lockPaymentSource(
   owner: Owner,
   source: PaymentSource,
   id: string,
+  allowVoided = false,
 ) {
   const { table, column } = paymentSources[source];
   // Identifiers come only from the fixed map, never from request text.
   const row = (
     await db.query(
-      `select amount_minor from public.${table} where id=$1 and owner_id=$2 for update`,
+      `select amount_minor,voided_at from public.${table} where id=$1 and owner_id=$2 for update`,
       [id, owner.id],
     )
   ).rows[0];
   if (!row) throw new AppError(404, "NOT_FOUND", "ไม่พบรายการค้างจ่าย");
+  if (row.voided_at && !allowVoided)
+    throw new AppError(409, "SOURCE_VOIDED", "รายการนี้ยกเลิกแล้ว");
   const paid = (
     await db.query(
       `select coalesce(sum(amount_minor),0)::text paid from public.expense_payments where ${column}=$1 and owner_id=$2 and voided_at is null`,
@@ -868,6 +872,7 @@ async function lockPaymentSource(
   return {
     amountMinor: Number(row.amount_minor),
     paidMinor: Number(paid.paid),
+    sourceVoided: !!row.voided_at,
   };
 }
 async function addPayment(
@@ -935,7 +940,7 @@ async function voidPayment(req: NextRequest, owner: Owner, id: string) {
         ? "sale-labor"
         : "opening-debts";
     const sourceId = original[paymentSources[source].column];
-    const totals = await lockPaymentSource(db, owner, source, sourceId);
+    const totals = await lockPaymentSource(db, owner, source, sourceId, true);
     const before = (
       await db.query(
         "select * from public.expense_payments where id=$1 and owner_id=$2 for update",
@@ -958,7 +963,7 @@ async function voidPayment(req: NextRequest, owner: Owner, id: string) {
       voided: true,
       amountMinor: totals.amountMinor,
       paidMinor: paid,
-      pendingMinor: totals.amountMinor - paid,
+      pendingMinor: totals.sourceVoided ? 0 : totals.amountMinor - paid,
     };
   });
 }
@@ -966,9 +971,9 @@ async function listPayables(owner: Owner) {
   const rows = (
     await pool().query(
       `with sources as (
-    select 'expenses' source,e.id,e.owner_id,e.garden_id,e.expense_date business_date,e.kind,e.payee,e.note,e.amount_minor,null::text invoice_number from public.expenses e where e.owner_id=$1
-    union all select 'sale-labor',l.id,l.owner_id,s.garden_id,s.sale_date,l.mode,l.payee,''::text,l.amount_minor,s.invoice_number from public.sale_labor l join public.sales s on s.id=l.sale_id and s.owner_id=l.owner_id where l.owner_id=$1
-    union all select 'opening-debts',d.id,d.owner_id,d.garden_id,d.debt_date,'opening_debt',d.payee,d.note,d.amount_minor,null::text from public.opening_debts d where d.owner_id=$1
+    select 'expenses' source,e.id,e.owner_id,e.garden_id,e.expense_date business_date,e.kind,e.payee,e.note,e.amount_minor,null::text invoice_number from public.expenses e where e.owner_id=$1 and e.voided_at is null
+    union all select 'sale-labor',l.id,l.owner_id,l.garden_id,l.labor_date,l.mode,l.payee,l.note,l.amount_minor,s.invoice_number from public.sale_labor l join public.sales s on s.id=l.sale_id and s.owner_id=l.owner_id where l.owner_id=$1 and l.voided_at is null
+    union all select 'opening-debts',d.id,d.owner_id,d.garden_id,d.debt_date,'opening_debt',d.payee,d.note,d.amount_minor,null::text from public.opening_debts d where d.owner_id=$1 and d.voided_at is null
   ) select s.source,s.id,s.garden_id "gardenId",coalesce(g.name,'ส่วนกลาง') "gardenName",to_char(s.business_date,'YYYY-MM-DD') "businessDate",s.kind,s.payee,s.note,s.invoice_number "invoiceNumber",s.amount_minor::float8 "amountMinor",
     coalesce(p.paid,0)::float8 "paidMinor",(s.amount_minor-coalesce(p.paid,0))::float8 "pendingMinor",coalesce(p.payments,'[]'::jsonb) payments,e.allocation_version "allocationVersion",${allocationJson("e")} allocations
     from sources s left join public.gardens g on g.id=s.garden_id and g.owner_id=s.owner_id
@@ -1047,11 +1052,13 @@ async function replaceAllocations(req: NextRequest, owner: Owner, id: string) {
     async (db) => {
       const source = (
         await db.query(
-          "select garden_id,amount_minor,allocation_version from public.expenses where id=$1 and owner_id=$2 for update",
+          "select garden_id,amount_minor,allocation_version,voided_at from public.expenses where id=$1 and owner_id=$2 for update",
           [id, owner.id],
         )
       ).rows[0];
       if (!source) throw new AppError(404, "NOT_FOUND", "ไม่พบรายจ่าย");
+      if (source.voided_at)
+        throw new AppError(409, "SOURCE_VOIDED", "รายการนี้ยกเลิกแล้ว");
       if (source.garden_id !== null)
         throw new AppError(
           422,
@@ -1328,6 +1335,11 @@ export async function handle(
       return response;
     }
     const owner = await authenticate(token);
+    const entryResponse = await entryRoutes(req, owner, path, {
+      body,
+      write: paymentWrite,
+    });
+    if (entryResponse) return entryResponse;
     if (route === "session" && method === "GET")
       return json({ username: owner.username });
     if (route === "summary" && method === "GET") {
@@ -1370,7 +1382,7 @@ export async function handle(
     if (route === "sales/preferences" && method === "GET") {
       const latest = (
         await pool().query(
-          "select id,garden_id,buyer from public.sales where owner_id=$1 order by created_at desc limit 1",
+          "select id,garden_id,buyer from public.sales where owner_id=$1 and voided_at is null order by created_at desc limit 1",
           [owner.id],
         )
       ).rows[0];
@@ -1383,7 +1395,7 @@ export async function handle(
       const lastLabor = latest
         ? (
             await pool().query(
-              "select mode,payee,rate_minor,basis_units from public.sale_labor where sale_id=$1 and owner_id=$2 order by created_at,id",
+              "select mode,payee,rate_minor,basis_units from public.sale_labor where sale_id=$1 and owner_id=$2 and voided_at is null order by created_at,id",
               [latest.id, owner.id],
             )
           ).rows
@@ -1445,9 +1457,9 @@ export async function handle(
         `select s.*,to_char(s.sale_date,'YYYY-MM-DD') sale_date,g.name garden_name,
         coalesce((select jsonb_agg(jsonb_build_object('description',d.description,'amount_minor',d.amount_minor) order by d.id) from public.sale_deductions d where d.sale_id=s.id and d.owner_id=s.owner_id),'[]'::jsonb) deductions,
         (select jsonb_build_object('id',r.id,'mime_type',r.mime_type,'size_bytes',r.size_bytes,'sha256',r.sha256) from public.receipt_files r where r.sale_id=s.id and r.owner_id=s.owner_id limit 1) receipt,
-        coalesce((select jsonb_agg(to_jsonb(l) || jsonb_build_object('paid_minor',coalesce((select sum(p.amount_minor) from public.expense_payments p where p.sale_labor_id=l.id and p.owner_id=l.owner_id and p.voided_at is null),0)) order by l.created_at,l.id) from public.sale_labor l where l.sale_id=s.id and l.owner_id=s.owner_id),'[]'::jsonb) labor
+        coalesce((select jsonb_agg(to_jsonb(l) || jsonb_build_object('paid_minor',coalesce((select sum(p.amount_minor) from public.expense_payments p where p.sale_labor_id=l.id and p.owner_id=l.owner_id and p.voided_at is null),0)) order by l.created_at,l.id) from public.sale_labor l where l.sale_id=s.id and l.owner_id=s.owner_id and l.voided_at is null),'[]'::jsonb) labor
         from public.sales s join public.gardens g on g.id=s.garden_id
-        where s.owner_id=$1 order by s.sale_date desc,s.created_at desc limit 200`,
+        where s.owner_id=$1 and s.voided_at is null order by s.sale_date desc,s.created_at desc limit 200`,
         [owner.id],
       );
       const sales = rows.rows.map((row) =>

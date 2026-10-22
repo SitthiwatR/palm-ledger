@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write src scripts/*.ts tests next.config.ts playwright.config.ts package.json tsconfig.json compose.local.yml",
     "format:check": "prettier --check src scripts/*.ts tests next.config.ts playwright.config.ts package.json tsconfig.json compose.local.yml",
-    "test": "node --test model.test.mjs && tsx --test tests/receipt.test.ts tests/expense.test.ts tests/auth-check.test.ts tests/database-network.test.ts tests/owner-cli.test.ts tests/integration.test.ts",
+    "test": "node --test model.test.mjs && tsx --test tests/migration-upgrade.test.ts tests/entry-csv.test.ts tests/receipt.test.ts tests/expense.test.ts tests/auth-check.test.ts tests/database-network.test.ts tests/owner-cli.test.ts tests/integration.test.ts",
     "test:browser": "tsx scripts/prepare-ocr-assets.ts && playwright test",
     "db:migrate": "node --env-file=.env.local --import tsx scripts/migrate.ts",
     "local:setup": "tsx scripts/local-setup.ts",

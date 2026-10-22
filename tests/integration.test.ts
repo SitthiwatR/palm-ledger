@@ -1661,6 +1661,787 @@ test("phase six concurrent replacement and payment preserve total; two stale edi
   assert.equal((await request("summary")).data.netMinor, net);
 });
 
+// Phase 7 fixtures are inserted only after support.ts verifies the local test DB.
+async function phase7Garden(name: string, openingMinor = 0) {
+  const r = await request(
+    "gardens",
+    "POST",
+    { name, openingMinor },
+    { "Idempotency-Key": randomUUID() },
+  );
+  assert.equal(r.response.status, 201);
+  return r.data.id as string;
+}
+async function phase7Expense(
+  garden: string | null,
+  amountBaht = "10000",
+  payee = "phase7-party",
+  receipt = false,
+) {
+  const r = await request(
+    "expenses",
+    "POST",
+    {
+      gardenId: garden,
+      expenseDate: "2026-09-10",
+      kind: "other",
+      payee,
+      note: "phase7",
+      unit: "item",
+      quantity: "1",
+      rateBaht: amountBaht,
+      paymentStatus: "unpaid",
+      rememberRate: false,
+      ...(receipt ? { pendingReceiptId: await uploadReceipt() } : {}),
+    },
+    { "Idempotency-Key": randomUUID() },
+  );
+  assert.equal(r.response.status, 201, JSON.stringify(r.data));
+  return r.data.id as string;
+}
+const phase7Edit = (garden: string | null, version = 1, rate = "10000") => ({
+  gardenId: garden,
+  date: "2026-09-10",
+  kind: "other",
+  payee: "แก้ชื่อ",
+  note: "เก็บประวัติ",
+  unit: "item",
+  quantity: "1",
+  rateBaht: rate,
+  expectedVersion: version,
+  reason: "ตรวจบิลใหม่",
+});
+const write7 = (
+  path: string,
+  data: unknown,
+  method = "PATCH",
+  key = randomUUID(),
+) => request("entries/" + path, method, data, { "Idempotency-Key": key });
+
+test("phase seven report garden totals, current pending, dates, filters, pagination and safe Thai CSV agree", async () => {
+  const a = await phase7Garden("phase7-report-A", 500000),
+    b = await phase7Garden("phase7-report-B");
+  const ids: string[] = [];
+  for (const [g, income, cost] of [
+    [a, 4800000, 2000000],
+    [b, 3000000, 1520000],
+  ] as const) {
+    const sale = (
+      await pool().query(
+        "insert into public.sales(owner_id,garden_id,sale_date,buyer,invoice_number,net_weight_grams,price_minor_per_kg,gross_minor,deductions_minor,net_minor) values($1,$2,'2026-08-10','รายงานไทย','=SUM(1,2)',1000,$3::integer,($3::integer)::bigint,0,($3::integer)::bigint) returning id",
+        [ownerId, g, income],
+      )
+    ).rows[0];
+    ids.push(sale.id);
+    const e = await phase7Expense(
+      g,
+      String(cost / 100),
+      g === a ? ' =1+2,"ไทย"\nใหม่' : "report-B",
+    );
+    ids.push(e);
+    await request(
+      `expenses/${e}/payments`,
+      "POST",
+      { paymentDate: "2026-10-01", amountBaht: "100" },
+      { "Idempotency-Key": randomUUID() },
+    );
+  }
+  const ar = (
+    await request(`entries?gardenId=${a}&from=2026-08-01&to=2026-09-30`)
+  ).data;
+  assert.equal(ar.report.movementMinor, 2800000);
+  assert.equal(ar.report.netMinor, 2800000);
+  assert.equal(ar.report.openingMinor, 500000);
+  assert.equal(ar.report.includesOpening, false);
+  assert.equal(ar.report.pendingAsOf, "current");
+  assert.equal(ar.report.pendingMinor, 1990000);
+  const br = (
+    await request(`entries?gardenId=${b}&from=2026-08-01&to=2026-09-30`)
+  ).data;
+  assert.equal(br.report.movementMinor, 1480000);
+  assert.equal(ar.report.movementMinor + br.report.movementMinor, 4280000);
+  const all = (await request(`entries?gardenId=${a}&pageSize=1&page=2`)).data;
+  assert.equal(all.total, 2);
+  assert.equal(all.entries.length, 1);
+  assert.equal(all.report.netMinor, 3300000);
+  assert.equal(all.report.gardens[0].net_minor, 3300000);
+  const pending = (await request(`entries?gardenId=${a}&paymentStatus=pending`))
+    .data;
+  assert.equal(pending.total, 1);
+  assert.equal(pending.report.pendingMinor, 1990000);
+  assert.equal(pending.report.includesOpening, false);
+  const fullCsv = await fetch(
+    origin + `/api/v1/entries/export?gardenId=${a}&pageSize=1&page=2`,
+    { headers: { Cookie: cookie } },
+  );
+  const fullText = await fullCsv.text();
+  assert.ok(fullText.includes(ids[0]));
+  assert.ok(fullText.includes(ids[1]));
+
+  const filter = `gardenId=${a}&from=2026-09-01&to=2026-09-30&source=expenses&kind=other&q=${encodeURIComponent("ไทย")}`;
+  const listed = await request("entries?" + filter);
+  assert.equal(listed.response.status, 200, JSON.stringify(listed.data));
+  assert.equal(listed.data.total, 1);
+  assert.equal(listed.data.report.expenseMinor, 2000000);
+  const csv = await fetch(origin + "/api/v1/entries/export?" + filter, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(csv.status, 200);
+  assert.match(csv.headers.get("content-type")!, /text\/csv/);
+  const bytes = Buffer.from(await csv.arrayBuffer());
+  assert.deepEqual([...bytes.subarray(0, 3)], [239, 187, 191]);
+  const text = bytes.toString("utf8");
+  assert.ok(text.includes('"\'=1+2,""ไทย""\nใหม่"'));
+  assert.ok(text.includes('"20000.00"'));
+  assert.ok(text.includes(listed.data.entries[0].id));
+  assert.ok(!text.includes("report-B"));
+  assert.equal(
+    (await request("entries?from=2026-10-22&to=2026-10-01")).response.status,
+    422,
+  );
+  assert.equal((await request("entries?gardenId=bad")).response.status, 422);
+  const unauth = await fetch(origin + "/api/v1/entries/export");
+  assert.equal(unauth.status, 401);
+});
+
+test("phase seven source edit is versioned, idempotent, paid-floor protected and preserves receipt/rate/payment IDs", async () => {
+  const g = await phase7Garden("phase7-edit"),
+    id = await phase7Expense(g, "10000", "original", true);
+  const original = (await request(`entries/expenses/${id}`)).data;
+  const payment = await request(
+    `expenses/${id}/payments`,
+    "POST",
+    { paymentDate: "2026-09-11", amountBaht: "6000" },
+    { "Idempotency-Key": randomUUID() },
+  );
+  assert.equal(payment.response.status, 200);
+  const low = await write7(`expenses/${id}`, phase7Edit(g, 1, "5000"));
+  assert.equal(low.response.status, 422);
+  assert.equal(low.data.error.code, "AMOUNT_BELOW_PAID");
+  await assert.rejects(
+    pool().query(
+      "update public.expenses set amount_minor=500000,rate_minor=500000 where id=$1",
+      [id],
+    ),
+    /below effective payments/,
+  );
+  const key = randomUUID(),
+    body = phase7Edit(g, 1, "11000");
+  const both = await Promise.all([
+    write7(`expenses/${id}`, body, "PATCH", key),
+    write7(`expenses/${id}`, body, "PATCH", key),
+  ]);
+  assert.ok(both.every((r) => r.response.status === 200));
+  assert.equal(both[0].data.version, 2);
+  assert.equal(
+    (await write7(`expenses/${id}`, body)).data.error.code,
+    "STALE_VERSION",
+  );
+  assert.equal(
+    (await write7(`expenses/${id}`, { ...body, reason: "other" }, "PATCH", key))
+      .response.status,
+    409,
+  );
+  const fresh = (await request(`entries/expenses/${id}`)).data;
+  assert.equal(fresh.paidMinor, 600000);
+  assert.equal(fresh.pendingMinor, 500000);
+  assert.equal(fresh.payments[0].id, payment.data.id);
+  assert.deepEqual(fresh.receipts, original.receipts);
+  assert.equal(
+    fresh.audit.filter((r: any) => r.action === "entry.edited").length,
+    1,
+  );
+  const race = await Promise.all([
+    write7(`expenses/${id}`, phase7Edit(g, 2, "12000")),
+    write7(`expenses/${id}`, phase7Edit(g, 2, "13000")),
+  ]);
+  assert.deepEqual(race.map((r) => r.response.status).sort(), [200, 409]);
+  const forbidden = await write7(`expenses/${id}`, phase7Edit(g, 3), "PATCH");
+  assert.equal(forbidden.response.status, 200);
+  const badOrigin = await request(
+    `entries/expenses/${id}`,
+    "PATCH",
+    phase7Edit(g, 4),
+    { Origin: "https://evil.invalid", "Idempotency-Key": randomUUID() },
+  );
+  assert.equal(badOrigin.response.status, 403);
+  assert.equal(
+    (await request(`entries/expenses/${randomUUID()}`)).response.status,
+    404,
+  );
+  const duplicateGarden = await phase7Garden("phase7-duplicate-edit");
+  const saleIds: string[] = [];
+  for (const invoice of ["first", "second"])
+    saleIds.push(
+      (
+        await pool().query(
+          "insert into public.sales(owner_id,garden_id,sale_date,buyer,invoice_number,net_weight_grams,price_minor_per_kg,gross_minor,deductions_minor,net_minor) values($1,$2,'2026-09-01','ผู้ซื้อ',$3,1000,100,100,0,100) returning id",
+          [ownerId, duplicateGarden, invoice],
+        )
+      ).rows[0].id,
+    );
+  const saleEdit = {
+    gardenId: duplicateGarden,
+    date: "2026-09-01",
+    payee: "ผู้ซื้อ",
+    invoiceNumber: "second",
+    weightKg: "1",
+    priceBahtPerKg: "1",
+    deductions: [],
+    receivedFull: true,
+    expectedVersion: 1,
+    reason: "ตรวจเลขซ้ำ",
+  };
+  assert.equal(
+    (await write7(`sales/${saleIds[0]}`, saleEdit)).data.error.code,
+    "DUPLICATE_BILL",
+  );
+  assert.equal(
+    (
+      await write7(`sales/${saleIds[0]}`, {
+        ...saleEdit,
+        confirmDuplicate: true,
+      })
+    ).response.status,
+    200,
+  );
+});
+
+test("phase seven sales require linked labor review, keep independent labor attribution and support separate labor corrections", async () => {
+  const a = await phase7Garden("phase7-sale-A"),
+    b = await phase7Garden("phase7-sale-B");
+  const sale = (
+    await request(
+      "sales",
+      "POST",
+      {
+        gardenId: a,
+        saleDate: "2026-09-01",
+        buyer: "linked-sale",
+        invoiceNumber: randomUUID(),
+        weightKg: "1000",
+        priceBahtPerKg: "10",
+        deductions: [],
+        labor: [
+          {
+            mode: "weight",
+            payee: "ทีมเก็บ",
+            quantity: "900",
+            rateBaht: "800",
+            rememberRate: true,
+          },
+        ],
+        pendingReceiptId: await uploadReceipt(),
+        receivedFull: true,
+      },
+      { "Idempotency-Key": randomUUID() },
+    )
+  ).data;
+  const detail = (await request(`entries/sales/${sale.id}`)).data;
+  assert.equal(detail.labor.length, 1);
+  const l = detail.labor[0],
+    profile = (
+      await pool().query(
+        "select * from public.labor_profiles where owner_id=$1 and payee='ทีมเก็บ'",
+        [ownerId],
+      )
+    ).rows;
+  await request(
+    `sale-labor/${l.id}/payments`,
+    "POST",
+    { paymentDate: "2026-09-02", amountBaht: "100" },
+    { "Idempotency-Key": randomUUID() },
+  );
+  const edit = {
+    gardenId: b,
+    date: "2026-09-03",
+    payee: "linked-edited",
+    note: "ไม่ย้ายค่าแรง",
+    invoiceNumber: detail.record.invoice_number,
+    weightKg: "1100",
+    priceBahtPerKg: "10",
+    deductions: [{ description: "หัก", amountBaht: "10" }],
+    receivedFull: true,
+    expectedVersion: 1,
+    reason: "แก้บิล",
+  };
+  assert.equal(
+    (await write7(`sales/${sale.id}`, edit)).data.error.code,
+    "LABOR_REVIEW_REQUIRED",
+  );
+  const reviewed = {
+    ...edit,
+    acknowledgeLabor: true,
+    laborVersions: [{ id: l.id, version: 1 }],
+  };
+  assert.equal(
+    (await write7(`sales/${sale.id}`, reviewed)).response.status,
+    200,
+  );
+  let labor = (await request(`entries/sale-labor/${l.id}`)).data;
+  assert.equal(labor.record.garden_id, a);
+  assert.equal(labor.record.date, "2026-09-01");
+  assert.equal(Number(labor.record.amount_minor), 72000);
+  assert.equal(labor.paidMinor, 10000);
+  const summary = (await request("gardens")).data.gardens;
+  assert.equal(summary.find((g: any) => g.id === a).netMinor, -72000);
+  assert.equal(summary.find((g: any) => g.id === b).netMinor, 1099000);
+  const laborEdit = {
+    gardenId: a,
+    date: "2026-09-04",
+    mode: "weight",
+    payee: "ทีมเก็บ",
+    quantity: "950",
+    rateBaht: "800",
+    note: "ฐานค่าแรงแยก",
+    expectedVersion: 1,
+    reason: "แก้ฐานทีม",
+  };
+  assert.equal(
+    (await write7(`sale-labor/${l.id}`, laborEdit)).response.status,
+    200,
+  );
+  assert.deepEqual(
+    (
+      await pool().query(
+        "select * from public.labor_profiles where owner_id=$1 and payee='ทีมเก็บ'",
+        [ownerId],
+      )
+    ).rows,
+    profile,
+  );
+  const voidBody = {
+    expectedVersion: 2,
+    reason: "บิลยกเลิก",
+    acknowledgeLabor: true,
+    laborVersions: [{ id: l.id, version: 1 }],
+  };
+  assert.equal(
+    (await write7(`sales/${sale.id}/void`, voidBody, "POST")).data.error.code,
+    "LABOR_REVIEW_REQUIRED",
+  );
+  assert.equal(
+    (
+      await write7(
+        `sales/${sale.id}/void`,
+        { ...voidBody, laborVersions: [{ id: l.id, version: 2 }] },
+        "POST",
+      )
+    ).response.status,
+    200,
+  );
+  labor = (await request(`entries/sale-labor/${l.id}`)).data;
+  assert.equal(labor.record.voided_at, null);
+  assert.equal(labor.paidMinor, 10000);
+  assert.equal(labor.pendingMinor, 66000);
+  const after = (await request("gardens")).data.gardens;
+  assert.equal(after.find((g: any) => g.id === a).netMinor, -76000);
+  assert.equal(after.find((g: any) => g.id === b).netMinor, 0);
+  assert.equal(
+    (
+      await write7(
+        `sale-labor/${l.id}/void`,
+        {
+          expectedVersion: 2,
+          reason: "ยกเลิกทีมแยก",
+          acknowledgePayments: true,
+          activePaymentIds: labor.payments
+            .filter((p: any) => !p.voided_at)
+            .map((p: any) => p.id),
+        },
+        "POST",
+      )
+    ).response.status,
+    200,
+  );
+  assert.equal(
+    (await request("gardens")).data.gardens.find((g: any) => g.id === a)
+      .netMinor,
+    0,
+  );
+});
+
+test("phase seven allocated source edits require complete replacement and invalidate stale allocation editors", async () => {
+  const a = await phase7Garden("phase7-alloc-A"),
+    b = await phase7Garden("phase7-alloc-B"),
+    id = await phase7Expense(null, "1000");
+  await request(
+    `expenses/${id}/allocations`,
+    "PUT",
+    {
+      expectedVersion: 1,
+      allocations: [
+        { gardenId: a, amountBaht: "400" },
+        { gardenId: b, amountBaht: "600" },
+      ],
+    },
+    { "Idempotency-Key": randomUUID() },
+  );
+  assert.equal(
+    (await write7(`expenses/${id}`, phase7Edit(null, 1, "1200"))).data.error
+      .code,
+    "STALE_VERSION",
+  );
+  assert.equal(
+    (await write7(`expenses/${id}`, phase7Edit(null, 2, "1200"))).data.error
+      .code,
+    "ALLOCATION_REVIEW_REQUIRED",
+  );
+  const input = {
+    ...phase7Edit(null, 2, "1200"),
+    allocations: [
+      { gardenId: a, amountBaht: "500" },
+      { gardenId: b, amountBaht: "700" },
+    ],
+  };
+  assert.equal((await write7(`expenses/${id}`, input)).response.status, 200);
+  assert.equal(
+    (
+      await request(
+        `expenses/${id}/allocations`,
+        "PUT",
+        { expectedVersion: 2, allocations: [] },
+        { "Idempotency-Key": randomUUID() },
+      )
+    ).response.status,
+    409,
+  );
+  const aa = (
+    await request(
+      `entries?gardenId=${a}&source=expenses&q=${encodeURIComponent("แก้ชื่อ")}`,
+    )
+  ).data;
+  assert.equal(aa.report.expenseMinor, 50000);
+  assert.equal(Number(aa.entries[0].amount_minor), 120000);
+  assert.equal(Number(aa.entries[0].selected_amount_minor), 50000);
+  const d = (await request(`entries/expenses/${id}`)).data;
+  assert.equal(
+    (
+      await write7(`expenses/${id}`, {
+        ...phase7Edit(a, d.record.version, "1200"),
+        allocations: [],
+      })
+    ).response.status,
+    200,
+  );
+  const next = (await request(`entries/expenses/${id}`)).data;
+  assert.equal(next.allocations.length, 0);
+  assert.equal(next.record.garden_id, a);
+});
+
+test("phase seven edit audit failure restores source and complete allocations before an identical retry", async () => {
+  const a = await phase7Garden("phase7-edit-rollback-A"),
+    b = await phase7Garden("phase7-edit-rollback-B"),
+    id = await phase7Expense(null, "1000");
+  await request(
+    `expenses/${id}/allocations`,
+    "PUT",
+    {
+      expectedVersion: 1,
+      allocations: [
+        { gardenId: a, amountBaht: "400" },
+        { gardenId: b, amountBaht: "600" },
+      ],
+    },
+    { "Idempotency-Key": randomUUID() },
+  );
+  const before = (await request(`entries/expenses/${id}`)).data,
+    key = randomUUID(),
+    input = {
+      ...phase7Edit(null, 2, "1200"),
+      allocations: [
+        { gardenId: a, amountBaht: "500" },
+        { gardenId: b, amountBaht: "700" },
+      ],
+    };
+  await pool().query(
+    "create function private.test_edit7_failure() returns trigger language plpgsql set search_path='' as $$ begin if NEW.action='entry.edited' then raise exception 'fixture failure'; end if; return NEW; end $$;create trigger test_edit7_failure before insert on public.audit_events for each row execute function private.test_edit7_failure()",
+  );
+  try {
+    assert.equal(
+      (await write7(`expenses/${id}`, input, "PATCH", key)).response.status,
+      500,
+    );
+  } finally {
+    await pool().query(
+      "drop trigger test_edit7_failure on public.audit_events;drop function private.test_edit7_failure()",
+    );
+  }
+  const rolled = (await request(`entries/expenses/${id}`)).data;
+  assert.deepEqual(rolled.record, before.record);
+  assert.deepEqual(rolled.allocations, before.allocations);
+  assert.equal(rolled.audit.length, before.audit.length);
+  assert.equal(
+    (
+      await pool().query(
+        "select count(*) n from private.idempotency_requests where key=$1",
+        [key],
+      )
+    ).rows[0].n,
+    "0",
+  );
+  assert.equal(
+    (await write7(`expenses/${id}`, input, "PATCH", key)).response.status,
+    200,
+  );
+  assert.equal(
+    (await write7(`expenses/${id}`, input, "PATCH", key)).response.status,
+    200,
+  );
+  assert.equal(
+    (await request(`entries/expenses/${id}`)).data.audit.filter(
+      (a: any) => a.action === "entry.edited",
+    ).length,
+    1,
+  );
+});
+
+test("phase seven void rolls back source, all payments, allocation history, audit and key together then retries safely", async () => {
+  const g = await phase7Garden("phase7-void"),
+    id = await phase7Expense(null, "10000", "void-with-history", true);
+  await request(
+    `expenses/${id}/allocations`,
+    "PUT",
+    { expectedVersion: 1, allocations: [{ gardenId: g, amountBaht: "10000" }] },
+    { "Idempotency-Key": randomUUID() },
+  );
+  const p1 = await request(
+    `expenses/${id}/payments`,
+    "POST",
+    { paymentDate: "2026-09-11", amountBaht: "5000" },
+    { "Idempotency-Key": randomUUID() },
+  );
+  const d = (await request(`entries/expenses/${id}`)).data;
+  const input = {
+      expectedVersion: d.record.version,
+      reason: "ต้นทางผิด",
+      acknowledgePayments: true,
+      activePaymentIds: [p1.data.id],
+    },
+    key = randomUUID();
+  assert.equal(
+    (
+      await write7(
+        `expenses/${id}/void`,
+        { ...input, acknowledgePayments: false },
+        "POST",
+      )
+    ).data.error.code,
+    "PAYMENT_REVIEW_REQUIRED",
+  );
+  await pool().query(
+    "create function private.test_phase7_failure() returns trigger language plpgsql set search_path='' as $$ begin if NEW.action='entry.voided' then raise exception 'fixture failure'; end if; return NEW; end $$;create trigger test_phase7_failure before insert on public.audit_events for each row execute function private.test_phase7_failure()",
+  );
+  try {
+    assert.equal(
+      (await write7(`expenses/${id}/void`, input, "POST", key)).response.status,
+      500,
+    );
+  } finally {
+    await pool().query(
+      "drop trigger test_phase7_failure on public.audit_events;drop function private.test_phase7_failure()",
+    );
+  }
+  let after = (await request(`entries/expenses/${id}`)).data;
+  assert.equal(after.record.voided_at, null);
+  assert.equal(after.paidMinor, 500000);
+  assert.equal(after.record.version, d.record.version);
+  assert.deepEqual(after.allocations, d.allocations);
+  assert.equal(after.audit.length, d.audit.length);
+  assert.equal(
+    (
+      await pool().query(
+        "select count(*) n from private.idempotency_requests where key=$1",
+        [key],
+      )
+    ).rows[0].n,
+    "0",
+  );
+  assert.equal(
+    (await write7(`expenses/${id}/void`, input, "POST", key)).response.status,
+    200,
+  );
+  assert.equal(
+    (await write7(`expenses/${id}/void`, input, "POST", key)).response.status,
+    200,
+  );
+  assert.equal(
+    (await write7(`expenses/${id}/void`, input, "POST")).response.status,
+    200,
+  );
+  after = (await request(`entries/expenses/${id}`)).data;
+  assert.ok(after.record.voided_at);
+  assert.equal(after.pendingMinor, 0);
+  assert.ok(after.payments[0].voided_at);
+  const voidAgain = await request(
+    `payments/${after.payments[0].id}/void`,
+    "POST",
+    { reason: "ซ้ำหลังยกเลิกต้นทาง" },
+    { "Idempotency-Key": randomUUID() },
+  );
+  assert.equal(voidAgain.response.status, 200);
+  assert.equal(voidAgain.data.pendingMinor, 0);
+
+  assert.deepEqual(after.receipts, d.receipts);
+  assert.deepEqual(after.allocations, d.allocations);
+  assert.equal(
+    after.audit.filter((a: any) => a.action === "entry.voided").length,
+    1,
+  );
+  assert.equal(
+    (
+      await request(
+        `expenses/${id}/payments`,
+        "POST",
+        { paymentDate: "2026-10-01", amountBaht: "1" },
+        { "Idempotency-Key": randomUUID() },
+      )
+    ).data.error.code,
+    "SOURCE_VOIDED",
+  );
+  assert.equal(
+    (await write7(`expenses/${id}`, phase7Edit(null, after.record.version)))
+      .data.error.code,
+    "SOURCE_VOIDED",
+  );
+  await assert.rejects(
+    pool().query(
+      "insert into public.expense_payments(owner_id,expense_id,payment_date,amount_minor) values($1,$2,'2026-10-01',1)",
+      [ownerId, id],
+    ),
+    /source not found/,
+  );
+  assert.ok(
+    !(await request("payables")).data.payables.some((p: any) => p.id === id),
+  );
+  assert.ok(
+    !(await request("expenses")).data.expenses.some((p: any) => p.id === id),
+  );
+  assert.equal(
+    (await request(`entries?status=voided&q=void-with-history`)).data.total,
+    1,
+  );
+});
+
+test("phase seven payment races with source reduction and source void serialize without half records or overpayment", async () => {
+  const g = await phase7Garden("phase7-race"),
+    id = await phase7Expense(g, "10000");
+  const [edit, pay] = await Promise.all([
+    write7(`expenses/${id}`, phase7Edit(g, 1, "5000")),
+    request(
+      `expenses/${id}/payments`,
+      "POST",
+      { paymentDate: "2026-09-12", amountBaht: "6000" },
+      { "Idempotency-Key": randomUUID() },
+    ),
+  ]);
+  assert.ok([200, 422].includes(edit.response.status));
+  assert.ok([200, 409].includes(pay.response.status));
+  assert.ok(edit.response.status !== 200 || pay.response.status !== 200);
+  const d = (await request(`entries/expenses/${id}`)).data;
+  assert.ok(d.paidMinor <= Number(d.record.amount_minor));
+  const [v, p] = await Promise.all([
+    write7(
+      `expenses/${id}/void`,
+      {
+        expectedVersion: d.record.version,
+        reason: "แข่งกับจ่าย",
+        acknowledgePayments: true,
+        activePaymentIds: d.payments
+          .filter((p: any) => !p.voided_at)
+          .map((p: any) => p.id),
+      },
+      "POST",
+    ),
+    request(
+      `expenses/${id}/payments`,
+      "POST",
+      { paymentDate: "2026-09-13", amountBaht: "100" },
+      { "Idempotency-Key": randomUUID() },
+    ),
+  ]);
+  assert.ok([200, 409].includes(v.response.status));
+  assert.ok([200, 409].includes(p.response.status));
+  const end = (await request(`entries/expenses/${id}`)).data;
+  if (end.record.voided_at) {
+    assert.equal(end.paidMinor, 0);
+    assert.equal(end.pendingMinor, 0);
+  } else assert.ok(end.paidMinor <= Number(end.record.amount_minor));
+});
+
+test("phase seven opening debt edits and void never change net and private views/functions stay inaccessible", async () => {
+  const g = await phase7Garden("phase7-debt", 500000);
+  const d = (
+    await request(
+      "opening-debts",
+      "POST",
+      {
+        gardenId: g,
+        debtDate: "2026-01-01",
+        payee: "หนี้ยกมา",
+        amountBaht: "1000",
+        note: "",
+      },
+      { "Idempotency-Key": randomUUID() },
+    )
+  ).data;
+  const edit = {
+    gardenId: g,
+    date: "2026-01-02",
+    payee: "หนี้ยกมา",
+    note: "แก้",
+    amountBaht: "1200",
+    expectedVersion: 1,
+    reason: "ตรวจเอกสาร",
+  };
+  assert.equal(
+    (await write7(`opening-debts/${d.id}`, edit)).response.status,
+    200,
+  );
+  let garden = (await request("gardens")).data.gardens.find(
+    (r: any) => r.id === g,
+  );
+  assert.equal(garden.netMinor, 500000);
+  assert.equal(garden.openingDebtPendingMinor, 120000);
+  assert.equal(
+    (
+      await write7(
+        `opening-debts/${d.id}/void`,
+        { expectedVersion: 2, reason: "ยกเลิกหนี้" },
+        "POST",
+      )
+    ).response.status,
+    200,
+  );
+  garden = (await request("gardens")).data.gardens.find((r: any) => r.id === g);
+  assert.equal(garden.netMinor, 500000);
+  assert.equal(garden.openingDebtPendingMinor, 0);
+  const views = (
+    await pool().query(
+      "select relname,reloptions,has_table_privilege('authenticated',c.oid,'select') client,has_table_privilege('anon',c.oid,'select') anon from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='private' and relname in ('ledger_records','ledger_attributions','expense_attributions_all')",
+    )
+  ).rows;
+  assert.equal(views.length, 3);
+  assert.ok(
+    views.every(
+      (r) =>
+        !r.client && !r.anon && r.reloptions.includes("security_invoker=true"),
+    ),
+  );
+  const f = (
+    await pool().query(
+      "select p.proname,p.prosecdef,p.proconfig,has_function_privilege('authenticated',p.oid,'execute') client from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname in ('guard_ledger_source','snapshot_sale_labor','check_sale_deductions')",
+    )
+  ).rows;
+  assert.equal(f.length, 3);
+  assert.ok(
+    f.every(
+      (r) =>
+        !r.prosecdef && !r.client && r.proconfig.includes('search_path=""'),
+    ),
+  );
+});
+
 test("Supabase REST RLS denies non-owners and direct writes, but allows owner reads", async () => {
   const owner = await supabase(true).auth.admin.getUserById(ownerId);
   assert.ok(owner.data.user);
@@ -1675,7 +2456,16 @@ test("Supabase REST RLS denies non-owners and direct writes, but allows owner re
   };
   const mine = await fetch(url, { headers });
   assert.equal(mine.status, 200);
-  assert.equal((await mine.json()).length, 4);
+  assert.deepEqual(
+    (await mine.json()).map((g: { id: string }) => g.id).sort(),
+    (
+      await pool().query("select id from public.gardens where owner_id=$1", [
+        ownerId,
+      ])
+    ).rows
+      .map((g) => g.id)
+      .sort(),
+  );
   const write = await fetch(url, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
