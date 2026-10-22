@@ -46,3 +46,21 @@ Deployment และการเทียบข้อมูลเดิมหล
 4. **OCR:** เป็นทางเลือกและกรอกเองได้ครบ ยังไม่รับรองบิลทุกแบบ/คุณภาพตามที่เจ้าของคาดหวัง หากเลือกถอด OCR ทั้งหมดภายหลัง ให้ถอด UI/worker/model/dependencies พร้อมแก้ tests/docs ไม่เปลี่ยนหลักฐานรูป/สูตรบัญชี
 
 Phase 9 พักตามผู้ใช้ จึงยังไม่อ้างว่าระบบครบทุกเฟสหรือผ่าน RPO รายวัน ไม่ปิด Phase 10 แทนผู้ใช้ และไม่เรียก production-ready ทั้งเกณฑ์ข้างต้นยังค้าง
+
+## Deployment และข้อมูลเดิม
+
+Code `a6d1a0a8fef1e319eb490e9ac2c8765adbb3dfd7` push `main` แล้ว Vercel [`dpl_DAyQx2o3oYaCZmibBHubickCZoEg`](https://vercel.com/self-ade5/palm-ledger/DAyQx2o3oYaCZmibBHubickCZoEg) **READY** SHA/repo `SitthiwatR/palm-ledger`/ref `main` ตรง และ alias `palm-ledger-nine.vercel.app` ชี้ deployment นี้ Project `prj_ZCEDsQNX4Kt2Xgj6IPdqI9ip9LT6`, team `team_PnTYWZ1rB5hOoQSGOZwv0aFW`
+
+Build logs มี `deploy:build`, official CA preparation, `Migrations applied.`, `Owner login: configured`, `Compiled successfully`, `Build Completed`, `Deployment completed` ทั้ง 12 migration checksums ตรงเดิม ไม่มี migration ใหม่หรือ reset/seed production
+
+ตรวจ production แบบอ่านอย่างเดียวหลังขึ้น Ready:
+
+- `/login`, `/records`, `/tools` → 200; unauthenticated gardens/automatic backup status APIs → 401
+- JS ที่เสิร์ฟจริงมี UI เลือกใช้ OCR/ข้อความกรอกเอง ไม่พบชื่อ env ลับ `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_ENCRYPTION_KEY`, `PALM_DATABASE_URL` ใน client chunks ที่ตรวจ
+- รูปต้นฉบับทั้งสองไฟล์ SHA-256 ตรง metadata และ metadata ตรง snapshot ก่อนทำงาน
+- เทียบ full-column row count/digest: **8 ตารางตรงเดิมทุกคอลัมน์** (`sales`, `sale_labor`, `expenses`, `opening_debts`, `expense_allocations`, `receipt_files`, `labor_profiles`, `gardens`)
+- `expense_payments` เปลี่ยนระหว่างทำงานจาก 1 เป็น 2 แถว มี owner audit `payment.voided` เวลา **14:34:32 UTC** และ `payment.created` เวลา **14:34:57 UTC** ก่อน push/deploy เวลา 15:05 UTC แถวเดิมตรง snapshot ทุกคอลัมน์เมื่อยกเว้น `voided_at`/`void_reason` ที่ถูกยกเลิกตาม audit จึงรักษาประวัติการใช้งานจริงไว้ ไม่ย้อน/ลบการเปลี่ยนนี้ Agent ใช้เพียง GET/SELECT กับ production; fixtures และการ reset บัญชีใน tests ใช้ฐาน local ที่มี guards เท่านั้น
+- Security advisors ไม่มีรายการใหม่ เหลือ warning เดิม [leaked password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection) ส่วน public signup ที่พบจาก settings ยังค้างตามรายการด้านบน
+- Error/fatal scan ของ deployment ช่วง 10 นาที ณ 15:08 UTC ไม่พบ logs เป็นหลักฐานช่วงที่ตรวจ ไม่ใช่ monitoring ระยะยาว
+
+หลักฐานนี้อยู่ใน commit เอกสารถัดจาก code ต้องตรวจ **HEAD ล่าสุดหลัง push เอกสาร** Ready พร้อม SHA/migration/build logs อีกครั้ง ไม่ใช้ Ready ของ code commit แทน HEAD ใหม่

@@ -16,6 +16,8 @@ node --env-file=.env.hosted.local --import tsx scripts/check-auth.ts --public-se
 
 Phase 9 เก็บ automatic runner/workflow templates/status ไว้ แต่ยังไม่เปิด schedule/ปลายทาง private ตามที่ผู้ใช้ให้พัก Manual backup/restore จาก Phase 8 ยังอยู่ ดู [handoff Phase 9](handoff-phase9.md) ไม่ถือว่า automatic backup ทำงานแล้ว
 
+**ผลตรวจ Phase 10:** model 4/4, unit/API/CLI 80/80, Chromium production build 17/17 (รวมรูปส่วนตัวแบบไม่ commit), typecheck/format/build ผ่าน ไม่มี schema change และ 12 migrations checksum เดิม Code `a6d1a0a` deploy Ready แล้ว ดู deployment/data-preservation proof ใน handoff และตรวจ HEAD เอกสารล่าสุดหลัง push ด้วย
+
 ## หลักฐาน Phase 5
 
 Phase 5 เพิ่มหนี้ก่อนเริ่มระบบ การจ่ายภายหลังหลายครั้งและยกเลิกการจ่ายผิด โดยใช้ `expense_payments` เดิมร่วมกับ `sale_labor`, `expenses` รวมค่าแรงทีมแยกบิล และ `opening_debts` ใหม่ การจ่าย/void เปลี่ยนเฉพาะค้าง ไม่หักสุทธิซ้ำ ดู [handoff Phase 5](handoff-phase5.md) สำหรับ API, migration, หลักฐานทดสอบและ deployment ล่าสุด ผู้ใช้อนุญาตเดิน Phase 5 โดยไม่ทำ Phase 4 ซ้ำ ผู้ใช้รับงาน Phase 5 และให้เดิน Phase 6 แล้ว
